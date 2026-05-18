@@ -38,9 +38,11 @@ import httpx
 
 log = logging.getLogger(__name__)
 
-# Hub-Dashboard (uvicorn). NICHT 8765 – das ist nur der lokale Pi-/health-Port.
+# Hub-Standard (Produktion). 8765 wird oft lokal für den Hub genutzt;
+# auf dem Pi selbst ist 8765 der Health-Port – Erkennung unterscheidet per
+# GET /health (Hub hat ``service=hotsport-hub``, Pi hat ``pi_id``).
 HUB_STANDARD_PORT = 8000
-PI_HEALTH_PORT = 8765
+HUB_ALT_PORTS = (8765,)  # lokale Dev-Instanzen / Dashboard-Empfehlung
 
 AUTO_URLS = frozenset({"", "auto", "discover"})
 MDNS_HOSTS = ("hub.local", "hotsport-hub.local", "hotsport-hub")
@@ -48,7 +50,7 @@ MDNS_HOSTS = ("hub.local", "hotsport-hub.local", "hotsport-hub")
 # Letzte Oktette, auf denen ein Hub sehr wahrscheinlich läuft.
 # Reihenfolge = Probier-Reihenfolge: Server-Range zuerst, dann typische
 # DHCP-Endungen, dann „kosmetische" Endungen wie 254.
-_TYPICAL_LAST_OCTETS = (1, 2, 5, 10, 20, 50, 80, 86, 100, 150, 200, 254)
+_TYPICAL_LAST_OCTETS = (1, 2, 5, 10, 20, 50, 80, 85, 86, 100, 150, 200, 254)
 
 # Wenn der Pi z.B. 192.168.0.101 hat, ist sein Hub-Gegenstück oft
 # 192.168.0.100 oder 192.168.0.102 (Workstation gleich neben dem Pi).
@@ -89,32 +91,29 @@ def load_cached_hub(state_dir: Path) -> str | None:
         return None
 
 
-def effective_hub_port(config_port: int) -> int:
-    """8765 ist der Pi-Health-Port – häufig fälschlich als hub_port gesetzt."""
-    if config_port in (0, PI_HEALTH_PORT):
-        if config_port == PI_HEALTH_PORT:
-            log.warning(
-                "hub_port=%d ist der Pi-Health-Port – nutze %d für die Hub-Suche.",
-                PI_HEALTH_PORT,
-                HUB_STANDARD_PORT,
-            )
-        return HUB_STANDARD_PORT
-    return config_port
-
-
 def ports_to_probe(config_port: int, hint_url: str | None) -> tuple[int, ...]:
-    """Alle Ports, die für GET /health am Hub sinnvoll sind."""
+    """Ports für GET /health am Hub (Hint + Config + 8000 + 8765)."""
     ports: list[int] = []
-    for p in (effective_hub_port(config_port), HUB_STANDARD_PORT):
-        if p not in ports:
-            ports.append(p)
+
+    def add(p: int, *, front: bool = False) -> None:
+        if p > 0 and p not in ports:
+            if front:
+                ports.insert(0, p)
+            else:
+                ports.append(p)
+
     if hint_url and not is_auto_url(hint_url):
         try:
             parsed = urlparse(hint_url)
-            if parsed.port and parsed.port not in ports and parsed.port != PI_HEALTH_PORT:
-                ports.insert(0, parsed.port)
+            if parsed.port:
+                add(parsed.port, front=True)
         except Exception:  # noqa: BLE001
             pass
+    if config_port > 0:
+        add(config_port, front=True)
+    add(HUB_STANDARD_PORT)
+    for alt in HUB_ALT_PORTS:
+        add(alt)
     return tuple(ports)
 
 
@@ -124,8 +123,8 @@ def save_cached_hub(state_dir: Path, url: str) -> None:
     p.write_text(url.rstrip("/") + "\n", encoding="utf-8")
 
 
-def is_hotsport_hub(base_url: str, timeout: float = 0.4) -> bool:
-    """True wenn GET /health wie ein Hotsport-Hub antwortet (kein pi_id-Feld)."""
+def is_hotsport_hub(base_url: str, timeout: float = 0.5) -> bool:
+    """True wenn GET /health vom Hub-Dashboard antwortet (nicht Pi-Health)."""
     base = base_url.rstrip("/")
     try:
         with httpx.Client(timeout=httpx.Timeout(timeout), follow_redirects=True) as client:
@@ -135,12 +134,12 @@ def is_hotsport_hub(base_url: str, timeout: float = 0.4) -> bool:
             data = resp.json()
     except (httpx.HTTPError, ValueError, TypeError):
         return False
-    return (
-        isinstance(data, dict)
-        and data.get("ok") is True
-        and "uptime_seconds" in data
-        and "pi_id" not in data
-    )
+    if not isinstance(data, dict) or data.get("ok") is not True:
+        return False
+    if data.get("service") == "hotsport-hub":
+        return True
+    # Fallback ältere Hub-Versionen / ohne service-Feld
+    return "uptime_seconds" in data and "pi_id" not in data
 
 
 def _local_ipv4_addresses() -> list[str]:
@@ -410,7 +409,7 @@ def discover_hub(
     hint_url: str | None = None,
     port: int = HUB_STANDARD_PORT,
     state_dir: Path | None = None,
-    probe_timeout: float = 0.35,
+    probe_timeout: float = 0.5,
     max_workers: int = 48,
 ) -> str | None:
     """Erst Prio-Kandidaten (~30, sehr schnell), dann Full-Sweep (~250)."""
@@ -455,4 +454,13 @@ def discover_hub(
     found = _race_probe(sweep, probe_timeout, max_workers)
     if found and state_dir:
         save_cached_hub(state_dir, found)
+    if not found:
+        log.warning(
+            "Hub nicht gefunden (Ports %s, Pi-IPs %s). "
+            "Hub muss im LAN auf 0.0.0.0 lauschen (nicht nur 127.0.0.1) "
+            "und die Windows-Firewall Port %s erlauben.",
+            ",".join(str(p) for p in ports),
+            local_ips or ["?"],
+            ",".join(str(p) for p in ports),
+        )
     return found

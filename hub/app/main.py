@@ -622,6 +622,7 @@ def _register_routes(app: FastAPI) -> None:
     async def health() -> dict:
         return {
             "ok": True,
+            "service": "hotsport-hub",
             "uptime_seconds": int(time.time()) - app.state.started_at,
         }
 
