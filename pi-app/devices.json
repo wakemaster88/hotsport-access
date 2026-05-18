@@ -22,7 +22,7 @@
 
   "api": {
     "base_url": "https://192.168.251.50:444",
-    "bearer_token": "",
+    "bearer_token": "ZfabKac0dR9FhV7g0xtNDljJLXofXgAoHR1ssjXCEabMNyVgf2Wg2kBvlf7G",
     "verify_tls": false,
     "connect_timeout_seconds": 1.0,
     "request_timeout_seconds": 2.0
