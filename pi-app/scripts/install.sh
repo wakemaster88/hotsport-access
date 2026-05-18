@@ -29,12 +29,12 @@ case "${MODE}" in
 esac
 
 echo "==> Verzeichnisse anlegen"
-install -d -m 0755 "${INSTALL_ROOT}" "${INSTALL_ROOT}/releases"
+BOOTSTRAP_DIR="${INSTALL_ROOT}/releases/bootstrap"
+install -d -m 0755 "${INSTALL_ROOT}" "${INSTALL_ROOT}/releases" "${BOOTSTRAP_DIR}"
 install -d -m 0755 "${STATE_DIR}" "${LOG_DIR}"
 install -d -m 0750 "${ETC_DIR}"
 
-echo "==> Erst-Release nach ${INSTALL_ROOT}/releases/bootstrap kopieren"
-BOOTSTRAP_DIR="${INSTALL_ROOT}/releases/bootstrap"
+echo "==> Erst-Release nach ${BOOTSTRAP_DIR} kopieren"
 rsync -a --delete \
     --exclude __pycache__ --exclude '*.pyc' \
     "${REPO_DIR}/app/"     "${BOOTSTRAP_DIR}/app/"
