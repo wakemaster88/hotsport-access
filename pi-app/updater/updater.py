@@ -319,6 +319,9 @@ def _finalize_in_progress(cfg: dict, uc: UpdaterCfg) -> None:
         )
 
 
+_logged_up_to_date_for: set[str] = set()
+
+
 def _check_and_apply(cfg: dict, uc: UpdaterCfg) -> None:
     try:
         _git(uc.git_repo, "fetch", "--quiet", "origin", uc.branch, timeout=30.0)
@@ -332,6 +335,15 @@ def _check_and_apply(cfg: dict, uc: UpdaterCfg) -> None:
     local = _git_head(uc.git_repo, "HEAD")
     remote = _git_head(uc.git_repo, f"origin/{uc.branch}")
     if local == remote:
+        # Pro Commit nur einmal melden, sonst spammt das Log alle 5 Min.
+        # Beim naechsten neuen Commit gehoert der Hinweis wieder rein.
+        if local not in _logged_up_to_date_for:
+            _logged_up_to_date_for.clear()
+            _logged_up_to_date_for.add(local)
+            log.info(
+                "Lokal aktuell auf %s – nichts zu tun.",
+                _git_describe(uc.git_repo, local),
+            )
         return
 
     bad = _bad_commits()
