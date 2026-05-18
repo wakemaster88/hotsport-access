@@ -172,6 +172,22 @@ def main() -> int:
     sdnotify.ready()
     sdnotify.status("running")
 
+    # Watchdog-Heartbeat unabhängig vom Reader-Mainloop – sonst killt
+    # systemd den Daemon nach 60 s, wenn niemand scannt (Reader hängt
+    # blockierend in read_loop()). Solange der Python-Prozess GIL und
+    # Thread-Scheduler bedient, lebt er aus systemd-Sicht.
+    def _watchdog_loop() -> None:
+        while not stop_flag["stop"]:
+            try:
+                sdnotify.watchdog()
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(10.0)
+
+    threading.Thread(
+        target=_watchdog_loop, name="systemd-watchdog", daemon=True
+    ).start()
+
     state.record_event(
         kind="service_start",
         reason=f"version={current_version()} hub={'an' if boot.hub.base_url else 'aus'}",
