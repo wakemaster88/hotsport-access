@@ -203,16 +203,23 @@ sudo bash scripts/install.sh</code></pre>
 Auswahl (Nummer 1-3): _</code></pre>
         </div>
 
-        <p>Danach kommen zwei Tokens ins Spiel. Reihenfolge:</p>
+        <p>Danach kommen zwei Tokens ins Spiel. Reihenfolge der Quellen
+            (erste Übereinstimmung gewinnt):</p>
         <ol>
-            <li><code>devices.json</code>: <code>api.bearer_token</code> /
-                <code>hub.pi_token</code> – wenn dort gesetzt, übernimmt der
-                Installer sie ohne Nachfrage.
+            <li><strong>Argumente</strong> beim Aufruf:
+                <code>sudo bash install.sh -y hotsport-pi-01 API_TOKEN HUB_TOKEN</code></li>
+            <li><strong>Env-Variablen</strong>:
+                <code>HOTSPORT_API_TOKEN=… HOTSPORT_HUB_TOKEN=… sudo -E bash install.sh -y …</code></li>
+            <li><strong>Vorhandene <code>/etc/hotsport-access/config.toml</code></strong>
+                – Re-Install läuft komplett automatisch, weil die Tokens vom
+                ersten Lauf wiederverwendet werden.</li>
+            <li><strong><code>devices.json</code></strong>:
+                <code>api.bearer_token</code> / <code>hub.pi_token</code>.
                 <span class="badge-warn">Achtung</span>
                 Tokens im Repo bedeuten: Repo MUSS privat sein.</li>
-            <li>Sonst (Felder leer): Installer fragt sie verdeckt am Pi ab,
-                schreibt sie nur in <code>/etc/hotsport-access/config.toml</code>.
-            </li>
+            <li><strong>Interaktiv</strong> (verdeckte Eingabe am Pi). Diese
+                Eingabe muss nur einmal pro Pi passieren – danach läuft
+                Punkt 3.</li>
         </ol>
         <p>
             <strong>Binarytec-API-Bearer-Token</strong> ist Pflicht (ohne ihn

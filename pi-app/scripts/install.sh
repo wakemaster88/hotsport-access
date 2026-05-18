@@ -194,8 +194,36 @@ fi
 [[ "${INTERFACE}"            == "-" ]] && INTERFACE=""
 [[ "${API_VERIFY_TLS}"       == "-" ]] && API_VERIFY_TLS="false"
 
-# ---------- API-Bearer-Token: Argument > devices.json > interaktiv ----------
+# ---------- Tokens aus existierender config.toml/secrets-Datei holen ----------
+# Damit ist Re-Install vollkommen automatisch: Beim ersten Mal werden die
+# Tokens interaktiv abgefragt + nach /etc/hotsport-access/config.toml
+# geschrieben; bei jedem weiteren `git pull && sudo bash install.sh` werden
+# sie von dort wieder gelesen.
+EXISTING_CFG="/etc/hotsport-access/config.toml"
+EXISTING_SECRETS="/etc/hotsport-access/tokens.env"
+EXISTING_API_TOKEN=""
+EXISTING_HUB_TOKEN=""
+if [[ -r "${EXISTING_CFG}" ]]; then
+    EXISTING_API_TOKEN="$(awk -F'"' '/^bearer_token[[:space:]]*=/{print $2; exit}' "${EXISTING_CFG}" 2>/dev/null || true)"
+    EXISTING_HUB_TOKEN="$(awk -F'"' '/^pi_token[[:space:]]*=/{print $2; exit}' "${EXISTING_CFG}" 2>/dev/null || true)"
+fi
+if [[ -z "${EXISTING_API_TOKEN}" && -r "${EXISTING_SECRETS}" ]]; then
+    # shellcheck disable=SC1090
+    source "${EXISTING_SECRETS}" 2>/dev/null || true
+    EXISTING_API_TOKEN="${API_TOKEN_FROM_FILE:-${HOTSPORT_API_TOKEN:-${EXISTING_API_TOKEN}}}"
+    EXISTING_HUB_TOKEN="${HUB_TOKEN_FROM_FILE:-${HOTSPORT_HUB_TOKEN:-${EXISTING_HUB_TOKEN}}}"
+fi
+
+# ---------- API-Bearer-Token: Argument > Env > vorhandene config.toml > devices.json > interaktiv ----------
 API_TOKEN_SOURCE="argument"
+if [[ -z "${API_TOKEN}" ]] && [[ -n "${HOTSPORT_API_TOKEN:-}" ]]; then
+    API_TOKEN="${HOTSPORT_API_TOKEN}"
+    API_TOKEN_SOURCE="env (HOTSPORT_API_TOKEN)"
+fi
+if [[ -z "${API_TOKEN}" ]] && [[ -n "${EXISTING_API_TOKEN}" ]]; then
+    API_TOKEN="${EXISTING_API_TOKEN}"
+    API_TOKEN_SOURCE="vorhandene config.toml"
+fi
 if [[ -z "${API_TOKEN}" ]] && [[ -n "${API_TOKEN_FROM_JSON}" ]]; then
     API_TOKEN="${API_TOKEN_FROM_JSON}"
     API_TOKEN_SOURCE="devices.json"
@@ -203,12 +231,17 @@ fi
 if [[ -z "${API_TOKEN}" ]]; then
     if [[ "${HAS_TTY}" -eq 0 ]]; then
         echo "FEHLER: Kein TTY und kein API-Bearer-Token übergeben." >&2
+        echo "Wege ihn zu setzen:" >&2
+        echo "  1) Argument:    sudo bash install.sh -y ${PI_ID} <API_TOKEN> [HUB_TOKEN]" >&2
+        echo "  2) Env-Var:     HOTSPORT_API_TOKEN=... HOTSPORT_HUB_TOKEN=... sudo -E bash install.sh -y ${PI_ID}" >&2
+        echo "  3) devices.json: api.bearer_token (nur in privatem Repo!)" >&2
         exit 2
     fi
     echo
     echo "Binarytec-API-Bearer-Token (Pflicht – ohne den können keine Scans validiert werden):"
-    echo "  Tipp: Token in pi-app/devices.json -> api.bearer_token eintragen,"
-    echo "        dann wird er beim nächsten Mal automatisch genommen."
+    echo "  Hinweis: nach dem Erst-Setup wird der Token automatisch wieder"
+    echo "           aus /etc/hotsport-access/config.toml gelesen, du musst"
+    echo "           ihn also nur ein einziges Mal eingeben."
     read -r -s -p "  > " API_TOKEN </dev/tty 2>/dev/null || API_TOKEN=""
     echo
     API_TOKEN_SOURCE="interaktiv"
@@ -218,8 +251,16 @@ if [[ -z "${API_TOKEN}" ]]; then
     exit 2
 fi
 
-# ---------- Hub-Token: Argument > devices.json > interaktiv (optional) ----------
+# ---------- Hub-Token: Argument > Env > vorhandene config.toml > devices.json > interaktiv ----------
 HUB_TOKEN_SOURCE="argument"
+if [[ -z "${HUB_TOKEN}" ]] && [[ -n "${HOTSPORT_HUB_TOKEN:-}" ]]; then
+    HUB_TOKEN="${HOTSPORT_HUB_TOKEN}"
+    HUB_TOKEN_SOURCE="env (HOTSPORT_HUB_TOKEN)"
+fi
+if [[ -z "${HUB_TOKEN}" ]] && [[ -n "${EXISTING_HUB_TOKEN}" ]]; then
+    HUB_TOKEN="${EXISTING_HUB_TOKEN}"
+    HUB_TOKEN_SOURCE="vorhandene config.toml"
+fi
 if [[ -z "${HUB_TOKEN}" ]] && [[ -n "${HUB_TOKEN_FROM_JSON}" ]]; then
     HUB_TOKEN="${HUB_TOKEN_FROM_JSON}"
     HUB_TOKEN_SOURCE="devices.json"
