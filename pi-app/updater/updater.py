@@ -147,14 +147,43 @@ def _mark_bad(sha: str, reason: str) -> None:
         fh.write(line)
 
 
+_AUTO_URLS = frozenset({"", "auto", "discover"})
+
+
+def _resolve_hub_base_url(cfg: dict) -> str | None:
+    """Liefert eine *aufrufbare* Hub-Basis-URL aus der Pi-Konfig.
+
+    1) ``[hub].base_url`` aus der Konfig, sofern keine Auto-Markierung.
+    2) ``<state_dir>/discovered_hub_url`` (vom Daemon gecached).
+    Sonst ``None`` – der Caller darf dann nichts senden.
+    """
+    hub = cfg.get("hub") or {}
+    raw = (hub.get("base_url") or "").strip()
+    if raw and raw.lower() not in _AUTO_URLS and raw.startswith(("http://", "https://")):
+        return raw.rstrip("/")
+
+    state_dir = Path(cfg.get("state_dir") or "/var/lib/hotsport-access")
+    cached = state_dir / "discovered_hub_url"
+    try:
+        url = cached.read_text(encoding="utf-8").strip()
+        if url.startswith(("http://", "https://")):
+            return url.rstrip("/")
+    except OSError:
+        pass
+    return None
+
+
 def _post_event_to_hub(cfg: dict, *, kind: str, reason: str) -> None:
     """Pusht ein Update-Event direkt an den Hub.
 
     Geht über /api/scan – derselbe Endpoint, den der Daemon nutzt – damit
     es im Pi-Detail-Log neben den Scans landet. Best-effort, kein Retry.
+    Wenn weder ``[hub].base_url`` (statisch) noch der Discovery-Cache
+    eine brauchbare URL liefern, wird das Event lautlos verworfen
+    (Standalone-Pi ohne Hub – kein Fehler).
     """
+    base_url = _resolve_hub_base_url(cfg)
     hub = cfg.get("hub") or {}
-    base_url = (hub.get("base_url") or "").rstrip("/")
     pi_token = hub.get("pi_token") or ""
     pi_id = cfg.get("pi_id") or ""
     if not (base_url and pi_token and pi_id):
@@ -163,17 +192,20 @@ def _post_event_to_hub(cfg: dict, *, kind: str, reason: str) -> None:
         "pi_id": pi_id, "kind": kind, "code": None,
         "granted": None, "reason": reason, "at": int(time.time()),
     }
-    req = urllib.request.Request(
-        f"{base_url}/api/scan",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {pi_token}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
     try:
+        req = urllib.request.Request(
+            f"{base_url}/api/scan",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {pi_token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
         urllib.request.urlopen(req, timeout=3.0).read()  # noqa: S310 (LAN)
+    except ValueError as e:
+        # z.B. malformed URL ("auto/api/scan") – nie raisen, war Best-effort.
+        log.warning("Hub-Push %s verworfen (URL=%r ungueltig: %s)", kind, base_url, e)
     except (urllib.error.URLError, OSError) as e:
         log.warning("Hub-Push %s fehlgeschlagen (%s)", kind, e)
 
