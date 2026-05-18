@@ -10,6 +10,7 @@ Schlüsselprinzipien:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 
@@ -78,12 +79,25 @@ class BinarytecClient:
         """
         ac_number_orig = ac_number
         ac_number = ac_number.replace("ß", "-")
-        body = {"resourceId": self._cfg.interface_id, "acNumber": ac_number}
+        # resourceId und acNumber bewusst als JSON-Strings senden (1:1
+        # zum alten PHP-Code: '{"resourceId":"3","acNumber":"…"}').
+        body = {
+            "resourceId": str(self._cfg.interface_id),
+            "acNumber": str(ac_number),
+        }
+        body_json = json.dumps(body, ensure_ascii=False)
+        token = self._cfg.bearer_token or ""
+        token_redacted = (
+            f"{token[:4]}…{token[-4:]} (len={len(token)})" if len(token) >= 8
+            else f"len={len(token)}"
+        )
         log.info(
-            "API check-access -> resourceId=%s acNumber=%s%s",
-            self._cfg.interface_id,
-            ac_number,
-            " (orig=" + ac_number_orig + ")" if ac_number_orig != ac_number else "",
+            "API check-access -> POST %s/api/v1/raspi/access-controls/check-access "
+            "Authorization=Bearer %s body=%s%s",
+            (self._cfg.base_url or "").rstrip("/"),
+            token_redacted,
+            body_json,
+            " (orig acNumber=" + ac_number_orig + ")" if ac_number_orig != ac_number else "",
         )
         try:
             resp = self._client.post(
