@@ -69,20 +69,44 @@ class BinarytecClient:
         reraise=True,
     )
     def check_access(self, ac_number: str) -> AccessResult:
-        """POST /api/v1/raspi/access-controls/check-access."""
+        """POST /api/v1/raspi/access-controls/check-access.
+
+        Loggt Request- und Response-Details auf INFO-Level, damit man im
+        ``journalctl`` direkt sieht, was die Binarytec-API zurückgibt –
+        insbesondere wenn ein Code unerwartet abgelehnt wird (access=0)
+        und man wissen muss, *warum*.
+        """
+        ac_number_orig = ac_number
         ac_number = ac_number.replace("ß", "-")
+        body = {"resourceId": self._cfg.interface_id, "acNumber": ac_number}
+        log.info(
+            "API check-access -> resourceId=%s acNumber=%s%s",
+            self._cfg.interface_id,
+            ac_number,
+            " (orig=" + ac_number_orig + ")" if ac_number_orig != ac_number else "",
+        )
         try:
             resp = self._client.post(
-                "/api/v1/raspi/access-controls/check-access",
-                json={"resourceId": self._cfg.interface_id, "acNumber": ac_number},
+                "/api/v1/raspi/access-controls/check-access", json=body,
             )
         except _RETRYABLE:
             raise
         except httpx.HTTPError as e:
+            log.warning("API check-access Transport-Fehler: %s", e)
             raise ApiError(f"HTTP-Fehler: {e}") from e
 
+        # Response-Body als Text immer loggen (gekürzt) – das Backend
+        # liefert oft eine sprechende statusMessage / message, die wir
+        # sonst niemals sehen würden.
+        body_text = (resp.text or "").strip()
+        log.info(
+            "API check-access <- HTTP %s (%d Bytes): %s",
+            resp.status_code,
+            len(resp.content or b""),
+            (body_text[:500] + ("…" if len(body_text) > 500 else "")) or "<leer>",
+        )
+
         if resp.status_code >= 500:
-            # Server-Fehler ist retry-würdig – als ConnectError neu werfen
             raise httpx.ConnectError(f"5xx vom Backend: {resp.status_code}")
 
         if resp.status_code == 401:
@@ -96,9 +120,46 @@ class BinarytecClient:
         try:
             access = int(obj["data"]["resource"]["access"])
         except (KeyError, TypeError, ValueError):
+            log.warning(
+                "API-Antwort ohne data.resource.access (acNumber=%s): %r",
+                ac_number, obj,
+            )
             return AccessResult(False, "error", f"unerwartete Antwort: {obj!r}")
 
-        return AccessResult(granted=access == 1, raw_status="ok", detail=str(access))
+        # Versuche, eine sprechende Status-Message aus dem Backend zu
+        # bekommen – Felder, die Binarytec/JSON-APIs typischerweise nutzen.
+        detail_msg = ""
+        if isinstance(obj, dict):
+            for key in ("statusMessage", "message", "status"):
+                v = obj.get(key)
+                if isinstance(v, (str, int, float)) and str(v):
+                    detail_msg = str(v)
+                    break
+            if not detail_msg:
+                data = obj.get("data")
+                if isinstance(data, dict):
+                    res = data.get("resource")
+                    if isinstance(res, dict):
+                        for key in (
+                            "statusMessage", "message", "reason",
+                            "status", "denyReason",
+                        ):
+                            v = res.get(key)
+                            if isinstance(v, (str, int, float)) and str(v):
+                                detail_msg = str(v)
+                                break
+
+        log.info(
+            "API check-access result: access=%d -> %s%s",
+            access,
+            "ZUGANG ERLAUBT" if access == 1 else "ZUGANG ABGELEHNT",
+            f" ({detail_msg})" if detail_msg else "",
+        )
+        return AccessResult(
+            granted=access == 1,
+            raw_status="ok",
+            detail=detail_msg or str(access),
+        )
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE),
@@ -116,10 +177,20 @@ class BinarytecClient:
         if inout not in ("in", "out"):
             raise ValueError("inout muss 'in' oder 'out' sein")
         path = f"/api/v1/raspi/access-controls/gone-{inout}"
+        log.info(
+            "API gone-%s -> resourceId=%s acNumber=%s",
+            inout, self._cfg.interface_id, ac_number,
+        )
         try:
             resp = self._client.post(
                 path,
                 json={"resourceId": self._cfg.interface_id, "acNumber": ac_number},
+            )
+            body_text = (resp.text or "").strip()
+            log.info(
+                "API gone-%s <- HTTP %s: %s",
+                inout, resp.status_code,
+                (body_text[:300] + ("…" if len(body_text) > 300 else "")) or "<leer>",
             )
             if resp.status_code >= 500:
                 raise httpx.ConnectError(f"5xx beim gone-{inout}: {resp.status_code}")

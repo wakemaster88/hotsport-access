@@ -292,7 +292,7 @@ def _handle_scan(
     code = scan.strip()
     if not code:
         return
-    log.info("Scan: %s", code)
+    log.info("Scan: %r (len=%d)", code, len(code))
 
     if not live.enabled:
         log.info("Pi ist deaktiviert – kein API-Call, kein Relais.")
@@ -314,7 +314,10 @@ def _handle_scan(
         return
 
     if result.granted:
-        state.record_scan(code=code, granted=True, reason=result.detail or "ok")
+        state.record_scan(
+            code=code, granted=True,
+            reason=f"ok (access=1, {result.detail})" if result.detail else "ok",
+        )
         gpio.open_relay()
         gpio.beep_valid()
         try:
@@ -322,7 +325,10 @@ def _handle_scan(
         except Exception as e:  # noqa: BLE001
             log.warning("gone-%s nicht bestätigt: %s", live.api.inout, e)
     else:
-        state.record_scan(code=code, granted=False, reason=result.detail or "denied")
+        state.record_scan(
+            code=code, granted=False,
+            reason=f"denied ({result.detail})" if result.detail else "denied",
+        )
         gpio.beep_invalid()
 
 
