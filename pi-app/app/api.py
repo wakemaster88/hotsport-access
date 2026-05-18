@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -110,14 +111,16 @@ class BinarytecClient:
             raise ApiError(f"HTTP-Fehler: {e}") from e
 
         # Response-Body als Text immer loggen (gekürzt) – das Backend
-        # liefert oft eine sprechende statusMessage / message, die wir
-        # sonst niemals sehen würden.
+        # liefert oft eine sprechende statusMessage / message / error,
+        # die wir sonst niemals sehen würden. 2 KB reichen für den
+        # gesamten relevanten Teil der Binarytec-Antwort (resource +
+        # customer + checkinInformations).
         body_text = (resp.text or "").strip()
         log.info(
             "API check-access <- HTTP %s (%d Bytes): %s",
             resp.status_code,
             len(resp.content or b""),
-            (body_text[:500] + ("…" if len(body_text) > 500 else "")) or "<leer>",
+            (body_text[:2000] + ("…" if len(body_text) > 2000 else "")) or "<leer>",
         )
 
         if resp.status_code >= 500:
@@ -131,37 +134,77 @@ class BinarytecClient:
         except ValueError as e:
             raise ApiError(f"Ungültige JSON-Antwort: {e}") from e
 
+        # Pfad 1: success=false oder data=null → Ticket nicht gefunden /
+        # explicit-error-Antwort. Das Backend liefert dann meist einen
+        # 'error'-Text auf Top-Level statt data.resource.access.
+        if isinstance(obj, dict):
+            success_flag = obj.get("success")
+            if success_flag is False or obj.get("data") is None:
+                err = (
+                    obj.get("error") or obj.get("message")
+                    or obj.get("statusMessage") or "denied (success=false)"
+                )
+                log.info(
+                    "API check-access result: success=False -> %s",
+                    err,
+                )
+                return AccessResult(False, "denied", str(err))
+
+        # Pfad 2: access-Feld auslesen. Backend schickt true/false, also
+        # ist int(False)=0 / int(True)=1 die korrekte Übersetzung.
         try:
-            access = int(obj["data"]["resource"]["access"])
-        except (KeyError, TypeError, ValueError):
+            access_raw = obj["data"]["resource"]["access"]
+        except (KeyError, TypeError):
             log.warning(
                 "API-Antwort ohne data.resource.access (acNumber=%s): %r",
                 ac_number, obj,
             )
             return AccessResult(False, "error", f"unerwartete Antwort: {obj!r}")
+        try:
+            access = int(bool(access_raw))
+        except (TypeError, ValueError):
+            return AccessResult(False, "error", f"access-Feld unlesbar: {access_raw!r}")
 
-        # Versuche, eine sprechende Status-Message aus dem Backend zu
-        # bekommen – Felder, die Binarytec/JSON-APIs typischerweise nutzen.
+        # Bei access=false hilft eine sprechende Begründung. Wir bauen
+        # sie aus den Feldern, die im SUP-/Aquapark-Backend tatsächlich
+        # gesetzt werden, zusammen.
         detail_msg = ""
-        if isinstance(obj, dict):
-            for key in ("statusMessage", "message", "status"):
-                v = obj.get(key)
-                if isinstance(v, (str, int, float)) and str(v):
-                    detail_msg = str(v)
-                    break
+        data = obj.get("data") if isinstance(obj, dict) else None
+        if isinstance(data, dict):
+            res = data.get("resource") or {}
+            checkin = data.get("checkinInformations") or {}
+
+            if access == 0:
+                # häufige Geschäftsregel-Hinweise
+                if res.get("set_beginn") and res.get("beginn") is None:
+                    detail_msg = "Ticket noch nicht aktiviert (beginn=null)"
+                elif res.get("till") and isinstance(res["till"], (int, float)) \
+                        and res["till"] < time.time():
+                    detail_msg = f"Ticket abgelaufen (till={int(res['till'])})"
+                else:
+                    # Fallback: alles was nach Begründung aussieht.
+                    for key in (
+                        "statusMessage", "message", "reason", "status",
+                        "denyReason",
+                    ):
+                        v = res.get(key)
+                        if isinstance(v, (str, int, float)) and str(v).strip():
+                            detail_msg = str(v).strip()
+                            break
+                    if not detail_msg and isinstance(checkin, dict):
+                        last = checkin.get("lastCheck") or checkin.get("last_check")
+                        if last:
+                            detail_msg = f"lastCheck={last}"
+
             if not detail_msg:
-                data = obj.get("data")
-                if isinstance(data, dict):
-                    res = data.get("resource")
-                    if isinstance(res, dict):
-                        for key in (
-                            "statusMessage", "message", "reason",
-                            "status", "denyReason",
-                        ):
-                            v = res.get(key)
-                            if isinstance(v, (str, int, float)) and str(v):
-                                detail_msg = str(v)
-                                break
+                # Bei access=true (oder leerem Detail): kompakte Zusammen-
+                # fassung loggen, damit man das Ticket erkennt.
+                bits: list[str] = []
+                for key in ("name", "duration", "ticketType"):
+                    v = res.get(key)
+                    if v not in (None, "", "-"):
+                        bits.append(f"{key}={v}")
+                detail_msg = ", ".join(bits)
 
         log.info(
             "API check-access result: access=%d -> %s%s",
@@ -172,7 +215,7 @@ class BinarytecClient:
         return AccessResult(
             granted=access == 1,
             raw_status="ok",
-            detail=detail_msg or str(access),
+            detail=detail_msg or ("ok" if access == 1 else "denied"),
         )
 
     @retry(
