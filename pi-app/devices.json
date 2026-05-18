@@ -75,6 +75,7 @@
       "name": "SUP Eingang",
       "location": "hotsport",
       "reader_mode": "keyboard",
+      "reader_device_path": "/dev/input/event4",
       "inout": "in",
       "interface_id": "3"
     }
