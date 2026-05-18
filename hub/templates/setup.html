@@ -63,10 +63,12 @@
                 <a href="#" onclick="document.querySelector('.setup-creds').scrollIntoView({behavior:'smooth'}); return false;">oben in dieser Anleitung</a>
                 (Quelle: <code>HOTSPORT_HUB_PI_TOKEN</code> in
                 <code>/etc/hotsport-hub.env</code>).</li>
-            <li><strong>Internet auf dem Pi – nur beim ersten Bootstrap.</strong>
-                Der Installer zieht ~30 MB Pakete (apt + pip + git clone von
-                <a href="https://github.com/wakemaster88/hotsport-access" target="_blank" rel="noopener">GitHub</a>).
-                Nach Schritt 2 kann der Pi dauerhaft offline bleiben; alle
+            <li>Einen Eintrag in der zentralen
+                <a href="https://github.com/wakemaster88/hotsport-access/blob/main/pi-app/devices.json" target="_blank" rel="noopener"><code>devices.json</code></a>
+                (siehe Schritt 2).</li>
+            <li><strong>Internet auf dem Pi – nur beim Bootstrap.</strong>
+                Der Installer zieht ~30 MB Pakete (apt + pip + git clone).
+                Nach Schritt 3 kann der Pi dauerhaft offline bleiben; alle
                 weiteren Updates kommen vom Hub.</li>
         </ul>
     </div>
@@ -101,98 +103,139 @@
     </div>
 </div>
 
-<!-- ============ Schritt 2: GitHub-Bootstrap ============ -->
+<!-- ============ Schritt 2a: Pi in devices.json eintragen ============ -->
 
 <div class="setup-step card">
     <div class="step-head">
         <span class="step-num">2</span>
-        <h3>Pi-App via GitHub installieren</h3>
+        <h3>Pi in <code>devices.json</code> eintragen</h3>
     </div>
     <div class="step-body">
         <p>
-            SSH auf den Pi. Der Bootstrap erfolgt direkt aus dem
-            öffentlichen GitHub-Repo.
+            Alle Drehkreuz-Pis stehen zentral in
+            <code>pi-app/devices.json</code> im Repo. Vor der Installation
+            eines neuen Pis dort einen Eintrag ergänzen:
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-edit-devices">Kopieren</button>
+            <pre id="code-edit-devices"><code># Auf deinem Mac/PC im geklonten Repo:
+$EDITOR pi-app/devices.json
+git add pi-app/devices.json
+git commit -m "add hotsport-pi-04"
+git push</code></pre>
+        </div>
+        <div class="code-block" data-lang="json">
+            <button type="button" class="copy-btn" data-copy-target="code-device-entry">Kopieren</button>
+            <pre id="code-device-entry"><code>{
+  "pi_id":        "hotsport-pi-04",
+  "name":         "Eingang West",
+  "location":     "hotsport",
+  "reader_mode":  "keyboard",
+  "inout":        "in",
+  "interface_id": "104",
+  "relay_pin":    24,
+  "buzzer_pin":   23
+}</code></pre>
+        </div>
+        <p class="muted small">
+            <code>reader_mode</code>: <code>keyboard</code> (USB-Wedge,
+            Standard), <code>qr_camera</code> oder <code>rfid_mfrc522</code>.<br />
+            <code>hub.base_url</code> ist in der gleichen Datei einmalig
+            für alle Pis hinterlegt – <strong>aktuell: <code>{{ hub_url }}</code></strong>.
+        </p>
+    </div>
+</div>
+
+<!-- ============ Schritt 3: Pi-App auf dem Pi installieren ============ -->
+
+<div class="setup-step card">
+    <div class="step-head">
+        <span class="step-num">3</span>
+        <h3>Pi-App auf dem Pi installieren</h3>
+    </div>
+    <div class="step-body">
+        <p>
+            SSH auf den Pi. Repo klonen, Installer aufrufen –
+            der fragt interaktiv nach dem zu installierenden Pi und dem
+            Hub-Token.
         </p>
         <p class="hint">
             <strong>Wichtig:</strong> Der Pi braucht <em>für diesen einen Schritt</em>
-            Internet (apt + pip + git, ~30 MB). Danach kann er für immer offline
-            bleiben &ndash; alle weiteren Updates kommen vom Hub im LAN.
+            Internet (apt + pip + git, ~30&nbsp;MB). Danach kann er für immer offline
+            bleiben – alle weiteren Updates kommen vom Hub im LAN.
         </p>
 
-        <p><strong>2a) Repo klonen und Installer ausführen</strong></p>
         <div class="code-block" data-lang="bash">
             <button type="button" class="copy-btn" data-copy-target="code-bootstrap-github">Kopieren</button>
             <pre id="code-bootstrap-github"><code>sudo apt-get update
 sudo apt-get install -y git
 git clone https://github.com/wakemaster88/hotsport-access.git
 cd hotsport-access/pi-app
-sudo bash scripts/install.sh keyboard</code></pre>
+sudo bash scripts/install.sh</code></pre>
         </div>
-        <p class="muted small">
-            Letztes Argument ist der Reader-Modus: <code>keyboard</code> (USB-Wedge,
-            Standard), <code>qr_camera</code> oder <code>rfid_mfrc522</code>.
-        </p>
 
-        <p style="margin-top: 1.2rem;"><strong>2b) Bootstrap-Konfiguration eintragen</strong></p>
-        <p class="muted small">
-            Hub-URL und Token sind bereits eingesetzt. Nur <code>pi_id</code>,
-            <code>name</code> und <code>location</code> auf den jeweiligen Pi
-            anpassen.
-        </p>
-        <div class="code-block" data-lang="bash">
-            <pre><code>sudo nano /etc/hotsport-access/config.toml</code></pre>
+        <p>Der Installer zeigt dann die Liste:</p>
+        <div class="code-block" data-lang="text">
+            <pre><code>Verfügbare Pis aus devices.json:
+
+   1) hotsport-pi-01           Eingang Nord          hotsport      keyboard      in
+   2) hotsport-pi-02           Eingang Süd           hotsport      keyboard      in
+   3) hotsport-pi-03           Ausgang Nord          hotsport      keyboard      out
+
+Auswahl (Nummer 1-3): _</code></pre>
         </div>
-        <div class="code-block" data-lang="toml">
-            <button type="button" class="copy-btn" data-copy-target="code-config-toml">Kopieren</button>
-            <pre id="code-config-toml"><code>pi_id     = "hotsport-pi-01"
-name      = "Eingang Nord"
-location  = "hotsport"
 
-state_dir = "/var/lib/hotsport-access"
-health_bind_host = "127.0.0.1"
-health_bind_port = 8765
-
-[hub]
-base_url                      = "{{ hub_url }}"
-pi_token                      = "{% if pi_token %}{{ pi_token }}{% else %}BITTE-EINTRAGEN{% endif %}"
-heartbeat_interval_seconds    = 5.0
-update_check_interval_seconds = 30.0</code></pre>
-        </div>
-        {% if not pi_token %}
-        <p class="muted small">
+        <p>
+            Danach noch der Hub-Token (verdeckt eingegeben), Bestätigung,
+            fertig.
+            {% if pi_token %}
+            Token findest du <a href="#" onclick="document.querySelector('.setup-creds').scrollIntoView({behavior:'smooth'}); return false;">oben in dieser Anleitung</a>.
+            {% else %}
             <span class="badge-warn">Hinweis</span>
-            Hub läuft ohne <code>HOTSPORT_HUB_PI_TOKEN</code>. Token in
-            <code>/etc/hotsport-hub.env</code> setzen, Hub neu starten,
-            danach hier neu laden.
+            Hub läuft ohne <code>HOTSPORT_HUB_PI_TOKEN</code> – setzen und
+            Hub neu starten, dann erscheint der Token hier oben.
+            {% endif %}
         </p>
-        {% endif %}
 
-        <p style="margin-top: 1.2rem;"><strong>2c) Service starten</strong></p>
-        <div class="code-block" data-lang="bash">
-            <button type="button" class="copy-btn" data-copy-target="code-restart">Kopieren</button>
-            <pre id="code-restart"><code>sudo systemctl restart hotsport-access hotsport-updater
-sudo systemctl status hotsport-access --no-pager -l | head -20
-journalctl -u hotsport-access -n 30 --no-pager</code></pre>
-        </div>
+        <details>
+            <summary>Direkter Aufruf mit Pi-ID (überspringt die Auswahl)</summary>
+            <div class="code-block" data-lang="bash">
+                <pre><code>sudo bash scripts/install.sh hotsport-pi-04
+# oder vollautomatisch (für Provisioning):
+sudo bash scripts/install.sh -y hotsport-pi-04 DEIN-TOKEN</code></pre>
+            </div>
+        </details>
+
+        <p class="muted small">
+            Idempotent – ein zweiter Lauf überschreibt weder venv noch
+            config.toml (sichert sie als <code>.bak.*</code>). Routine-Updates
+            kommen über den <code>hotsport-updater</code>-Service vom Hub.
+        </p>
         <p class="muted small">
             Innerhalb von ~5&nbsp;Sekunden taucht der Pi unten im Dashboard auf.
-            Ab jetzt läuft alles über den Hub &ndash; Pi kann vom Internet
-            getrennt werden.
+            Ab jetzt läuft alles über den Hub – Pi kann vom Internet getrennt
+            werden.
         </p>
     </div>
 </div>
 
-<!-- ============ Schritt 3: Im Dashboard konfigurieren ============ -->
+<!-- ============ Schritt 4: Optional im Dashboard nachjustieren ============ -->
 
 <div class="setup-step card">
     <div class="step-head">
-        <span class="step-num">3</span>
-        <h3>Pi im Dashboard konfigurieren</h3>
+        <span class="step-num">4</span>
+        <h3>Optional: im Dashboard nachjustieren</h3>
     </div>
     <div class="step-body">
         <p>
-            Im <a href="/">Dashboard</a> beim neuen Pi auf das <code>▾</code> klicken und
-            in der rechten Spalte folgendes setzen:
+            Standardmäßig kommen alle Werte (Reader-Modus, Richtung,
+            Interface-ID, GPIO-Pins, …) aus <code>devices.json</code> –
+            damit ist kein Dashboard-Eingriff nötig.
+        </p>
+        <p>
+            Falls etwas nachträglich geändert werden soll
+            (z.B. anderer GPIO-Pin), im <a href="/">Dashboard</a> beim Pi
+            auf <code>▾</code> klicken und das gewünschte Feld setzen:
         </p>
         <dl class="config-list">
             <dt>Interface-ID</dt>
@@ -200,13 +243,6 @@ journalctl -u hotsport-access -n 30 --no-pager</code></pre>
 
             <dt>Richtung</dt>
             <dd><code>in</code> (Eingang) oder <code>out</code> (Ausgang).</dd>
-
-            <dt>Reader-Modus</dt>
-            <dd>
-                <code>keyboard</code> – USB-Wedge-Scanner (Standard, einfachste Variante)<br />
-                <code>qr_camera</code> – USB-Kamera mit OpenCV<br />
-                <code>rfid_mfrc522</code> – SPI-RFID-Modul
-            </dd>
 
             <dt>Reader-Devicepfad / Kamera-Index</dt>
             <dd>
@@ -218,22 +254,22 @@ journalctl -u hotsport-access -n 30 --no-pager</code></pre>
             <dt>GPIO-Pins</dt>
             <dd>
                 Standard: Relais GPIO 24, Buzzer GPIO 23, Pulsdauer 1.0 s.
-                Nur ändern, wenn die Verkabelung anders ist.
+                Nur ändern, wenn die Verkabelung abweicht.
             </dd>
         </dl>
         <p class="hint">
             Nach <em>Speichern</em> ändert sich der Config-Fingerprint. Der Pi
-            erkennt das beim nächsten Heartbeat (≤ 5 s) und startet sich
-            automatisch mit der neuen Konfig neu – kein SSH nötig.
+            erkennt das beim nächsten Heartbeat (≤ 5 s) und übernimmt die neue
+            Konfig automatisch – kein SSH nötig.
         </p>
     </div>
 </div>
 
-<!-- ============ Schritt 4: Reader-spezifische Hinweise ============ -->
+<!-- ============ Schritt 5: Reader-spezifische Hinweise ============ -->
 
 <div class="setup-step card">
     <div class="step-head">
-        <span class="step-num">4</span>
+        <span class="step-num">5</span>
         <h3>Reader-spezifische Hinweise</h3>
     </div>
     <div class="step-body">

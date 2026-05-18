@@ -1,0 +1,64 @@
+{
+  "_comment": [
+    "Zentrale Pi-Konfiguration für die hotsport-access Drehkreuze.",
+    "Hier eintragen, was sonst pro Pi getippt werden müsste – beim",
+    "install.sh auf dem Pi wird dann nur noch der passende Eintrag",
+    "ausgewählt und alles automatisch in /etc/hotsport-access/config.toml",
+    "geschrieben.",
+    "",
+    "Workflow:",
+    "  1. Diese Datei editieren (neuen Pi-Eintrag ergänzen oder ändern)",
+    "  2. git commit && git push",
+    "  3. Auf dem Pi: install.sh aufrufen, Pi-ID auswählen, fertig.",
+    "",
+    "Felder:",
+    "  pi_id        Eindeutige ID (entspricht Hostname-Konvention)",
+    "  name         Anzeigename im Dashboard",
+    "  location     Standort/Halle",
+    "  reader_mode  keyboard | qr_camera | rfid_mfrc522",
+    "  inout        in | out (Drehkreuz-Richtung)",
+    "  interface_id resourceId aus der Binarytec-API (optional bei Anlegen,",
+    "                kann auch später im Dashboard gesetzt werden)",
+    "  relay_pin    GPIO-Pin Relais (Standard 24)",
+    "  buzzer_pin   GPIO-Pin Buzzer (Standard 23)",
+    "",
+    "Sicherheitshinweis: Hub-URL ist OK hier (LAN-IP, nicht-secret).",
+    "Der Pi-Token (HOTSPORT_HUB_PI_TOKEN) wird beim install.sh interaktiv",
+    "abgefragt und NICHT in dieser Datei gespeichert – dieses Repo ist public."
+  ],
+  "hub": {
+    "base_url": "http://192.168.0.86:8765"
+  },
+  "pis": [
+    {
+      "pi_id": "hotsport-pi-01",
+      "name": "Eingang Nord",
+      "location": "hotsport",
+      "reader_mode": "keyboard",
+      "inout": "in",
+      "interface_id": "101",
+      "relay_pin": 24,
+      "buzzer_pin": 23
+    },
+    {
+      "pi_id": "hotsport-pi-02",
+      "name": "Eingang Süd",
+      "location": "hotsport",
+      "reader_mode": "keyboard",
+      "inout": "in",
+      "interface_id": "102",
+      "relay_pin": 24,
+      "buzzer_pin": 23
+    },
+    {
+      "pi_id": "hotsport-pi-03",
+      "name": "Ausgang Nord",
+      "location": "hotsport",
+      "reader_mode": "keyboard",
+      "inout": "out",
+      "interface_id": "103",
+      "relay_pin": 24,
+      "buzzer_pin": 23
+    }
+  ]
+}
