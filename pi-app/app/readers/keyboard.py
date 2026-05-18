@@ -31,35 +31,58 @@ from ..config import LiveConfig
 
 log = logging.getLogger(__name__)
 
-# Keys, die ein echtes Tastatur-Eingabegerät (Barcode-Scanner, Tastatur,
-# Wedge-Reader) haben muss. HDMI-CEC-Inputs scheitern hier durch.
-_REQUIRED_KEYS = (
-    ecodes.KEY_ENTER,
-    ecodes.KEY_A,
-    ecodes.KEY_0,
+# Ziffer-Keycodes (KEY_0 .. KEY_9). Reine RFID-Reader senden oft *nur*
+# Ziffern + Enter (keine Buchstaben), QR-/Barcode-Scanner senden alles.
+_DIGIT_KEYS = (
+    ecodes.KEY_0, ecodes.KEY_1, ecodes.KEY_2, ecodes.KEY_3, ecodes.KEY_4,
+    ecodes.KEY_5, ecodes.KEY_6, ecodes.KEY_7, ecodes.KEY_8, ecodes.KEY_9,
 )
 
 
-def _looks_like_scanner(dev: InputDevice) -> bool:
-    """Heuristik: USB-Keyboard mit Buchstaben + Ziffern + Enter.
+def _scanner_check(dev: InputDevice) -> tuple[bool, str]:
+    """Prüft, ob das Device wie ein USB-Tastatur-Reader aussieht.
 
-    Filtert HDMI-CEC-Inputs (vc4-hdmi-*) und andere Pseudo-Keyboards aus,
-    die nur Multimedia-Tasten besitzen.
+    Akzeptiert:
+    - QR-/Barcode-Scanner (Enter + Ziffern + Buchstaben)
+    - RFID-Reader, die nur Ziffern + Enter senden (z.B. viele
+      125-kHz-EM-Reader oder MIFARE-USB-Sticks)
+
+    Filtert raus:
+    - HDMI-CEC-Pseudoinputs (kein Enter oder keine Ziffern, Name
+      enthält ``hdmi`` / ``vc4``)
+    - Geräte ohne Enter
+    - Geräte ohne irgendeine Ziffer
+
+    Liefert (akzeptiert?, grund_string) – der Grund wird ins Log
+    gespiegelt, damit man im Diagnose-Modus sieht, warum ein Gerät
+    nicht erkannt wurde.
     """
+    name = (dev.name or "?")
+    phys = (dev.phys or "")
+    name_lc = name.lower()
+    phys_lc = phys.lower()
+    if "hdmi" in name_lc or "vc4" in name_lc:
+        return False, f"name='{name}' sieht nach HDMI-CEC aus"
     try:
         caps = dev.capabilities().get(ecodes.EV_KEY, [])
-    except OSError:
-        return False
+    except OSError as e:
+        return False, f"capabilities() fehlgeschlagen: {e}"
     cap_set = set(caps)
-    if not all(k in cap_set for k in _REQUIRED_KEYS):
-        return False
-    name = (dev.name or "").lower()
-    # HDMI-CEC explizit ausschließen, falls eines mal alle KEY-Caps hat.
-    if "hdmi" in name or "vc4" in name:
-        return False
-    phys = (dev.phys or "").lower()
-    # USB-Geräte bevorzugt; intern (z.B. „virtual“) ignorieren.
-    return "usb" in phys or not phys
+    if ecodes.KEY_ENTER not in cap_set:
+        return False, "kein KEY_ENTER (kein Tastatur-Reader)"
+    digits_present = sum(1 for k in _DIGIT_KEYS if k in cap_set)
+    if digits_present < 5:
+        return False, f"nur {digits_present}/10 Ziffern-Keys (kein Reader)"
+    # USB-Devices bevorzugt; akzeptieren auch leere phys (manche
+    # virtuelle Reader/HID-Adapter melden gar nichts).
+    if phys_lc and "usb" not in phys_lc:
+        return False, f"phys='{phys}' (nicht USB)"
+    return True, f"Enter + {digits_present} Ziffern"
+
+
+def _looks_like_scanner(dev: InputDevice) -> bool:
+    ok, _ = _scanner_check(dev)
+    return ok
 
 
 def autodetect_paths() -> list[tuple[str, str]]:
@@ -67,32 +90,44 @@ def autodetect_paths() -> list[tuple[str, str]]:
 
     Gibt eine Liste ``[(pfad, name), …]`` zurück. Reihenfolge: Devices,
     deren Name nach Scanner aussieht (``barcode``/``scanner``), zuerst,
-    dann ``hid``, dann der Rest – damit z.B. der RFID-Reader und der
-    QR-Scanner gleichzeitig erkannt und parallel gelesen werden können.
+    dann ``hid``/``rfid``, dann der Rest – damit z.B. der RFID-Reader
+    und der QR-Scanner gleichzeitig erkannt und parallel gelesen werden
+    können. Akzeptierte und verworfene Geräte werden ins Log geschrieben.
     """
     candidates: list[tuple[int, str, str]] = []  # (priority, path, name)
+    accepted: list[str] = []
+    rejected: list[str] = []
     for path in sorted(list_devices()):
         try:
             dev = InputDevice(path)
-        except (FileNotFoundError, PermissionError, OSError):
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            rejected.append(f"{path}: open fehlgeschlagen ({e})")
             continue
         try:
-            if not _looks_like_scanner(dev):
+            ok, reason = _scanner_check(dev)
+            name = dev.name or "?"
+            if not ok:
+                rejected.append(f"{path} '{name}': {reason}")
                 continue
-            name_lc = (dev.name or "").lower()
+            name_lc = name.lower()
             if any(t in name_lc for t in ("barcode", "scanner")):
                 priority = 0
             elif "hid" in name_lc or "rfid" in name_lc:
                 priority = 1
             else:
                 priority = 2
-            candidates.append((priority, path, dev.name or "?"))
+            candidates.append((priority, path, name))
+            accepted.append(f"{path} '{name}' (prio={priority}, {reason})")
         finally:
             try:
                 dev.close()
             except OSError:
                 pass
     candidates.sort(key=lambda x: (x[0], x[1]))
+    if accepted:
+        log.info("Auto-Detect akzeptiert: %s", "; ".join(accepted))
+    if rejected:
+        log.info("Auto-Detect verworfen: %s", "; ".join(rejected))
     return [(path, name) for _, path, name in candidates]
 
 
