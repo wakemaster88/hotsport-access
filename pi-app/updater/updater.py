@@ -63,10 +63,41 @@ def _read_config(path: Path) -> dict:
 
 
 def _git(repo: Path, *args: str, check: bool = True, timeout: float = 60.0) -> subprocess.CompletedProcess:
-    cmd = ["git", "-C", str(repo), *args]
+    """Ruft ``git`` mit hartem Schutz gegen das ``safe.directory``-Problem auf.
+
+    Hintergrund: Wenn das Repo z.B. von User ``pi`` geklont wurde, der
+    Updater-Service aber als ``root`` (oder umgekehrt) läuft, blockt
+    Git mit::
+
+        fatal: detected dubious ownership in repository at '/…'
+
+    Das fixen wir hier ohne globale ``git config``-Änderungen, indem
+    wir bei jedem Aufruf ``-c safe.directory=*`` und auch konkret den
+    Repo-Pfad mitgeben, plus die entsprechende Env-Variable als
+    Fallback. So funktioniert der Updater zuverlässig, egal welcher
+    User das Repo besitzt oder den Service startet.
+    """
+    repo_str = str(repo)
+    cmd = [
+        "git",
+        "-c", "safe.directory=*",
+        "-c", f"safe.directory={repo_str}",
+        "-C", repo_str,
+        *args,
+    ]
+    env = os.environ.copy()
+    # Fallback fuer alte Git-Versionen, die -c safe.directory ignorieren.
+    existing = env.get("GIT_CONFIG_COUNT", "")
+    try:
+        idx = int(existing) if existing else 0
+    except ValueError:
+        idx = 0
+    env["GIT_CONFIG_KEY_" + str(idx)] = "safe.directory"
+    env["GIT_CONFIG_VALUE_" + str(idx)] = "*"
+    env["GIT_CONFIG_COUNT"] = str(idx + 1)
     log.debug("git %s", " ".join(args))
     return subprocess.run(  # noqa: S603,S607
-        cmd, check=check, capture_output=True, text=True, timeout=timeout,
+        cmd, check=check, capture_output=True, text=True, timeout=timeout, env=env,
     )
 
 

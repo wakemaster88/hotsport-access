@@ -424,6 +424,15 @@ fi
 GIT_REPO_DIR="$(cd "${REPO_DIR}/.." && pwd)"
 UPDATER_BLOCK=""
 if [[ -d "${GIT_REPO_DIR}/.git" ]]; then
+    # Verhindert "fatal: detected dubious ownership" beim Updater-Service:
+    # Repo wird typischerweise als User pi geklont, der Updater laeuft aber
+    # als root. /etc/gitconfig (system-weit) schaltet den Check fuer dieses
+    # eine Repo aus. Wir nutzen --system, damit es fuer ALLE User greift,
+    # die git auf dem Pi aufrufen (root, pi, hotsport, ...).
+    if ! git config --system --get-all safe.directory 2>/dev/null | grep -qx "${GIT_REPO_DIR}"; then
+        git config --system --add safe.directory "${GIT_REPO_DIR}" || true
+    fi
+
     UPDATER_BLOCK=$(cat <<EOF
 
 [updater]
