@@ -30,7 +30,7 @@
 
   "defaults": {
     "reader_mode": "keyboard",
-    "reader_device_path": "/dev/input/event0",
+    "reader_device_path": "auto",
     "reader_camera_index": 0,
     "relay_pin": 24,
     "relay_pulse_seconds": 1.0,
@@ -75,7 +75,6 @@
       "name": "SUP Eingang",
       "location": "hotsport",
       "reader_mode": "keyboard",
-      "reader_device_path": "/dev/input/event4",
       "inout": "in",
       "interface_id": "3"
     }

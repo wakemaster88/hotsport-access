@@ -287,8 +287,12 @@ sudo bash scripts/install.sh -y hotsport-pi-04 BINARYTEC-TOKEN ""</code></pre>
 
             <dt>Reader-Devicepfad / Kamera-Index</dt>
             <dd>
-                Bei Wedge-Scannern <code>/dev/input/event0</code> (mit
-                <code>ls /dev/input/by-id/</code> auf dem Pi prüfen).
+                Default <code>"auto"</code> – der Pi sucht beim Start
+                automatisch ein USB-Keyboard mit Buchstaben/Ziffern
+                (= Barcode-Scanner) unter <code>/dev/input/event*</code>
+                und filtert HDMI-Inputs raus.
+                Nur überschreiben, wenn mehrere passende Geräte angeschlossen
+                sind: dann z.B. <code>/dev/input/by-id/usb-…-event-kbd</code>.
                 Bei Kameras meist <code>0</code>.
             </dd>
 

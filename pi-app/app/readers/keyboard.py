@@ -7,6 +7,9 @@ Robustheit:
 - Wenn das Gerät nicht da ist (USB ausgesteckt, Kernel-Reboot des
   Eingabe-Subsystems), warten wir und versuchen es erneut.
 - Read-Loop wird bei OSError neu aufgebaut.
+- Pfad ``"auto"`` (oder leer) lässt den Reader das richtige Eingabegerät
+  selbst suchen – findet den Barcode-Scanner unter den `event*`-Devices,
+  egal ob er gerade ``event4`` oder ``event7`` heißt.
 """
 
 from __future__ import annotations
@@ -15,11 +18,81 @@ import logging
 import time
 from typing import Iterator
 
-from evdev import InputDevice, categorize, ecodes  # type: ignore[import-not-found]
+from evdev import InputDevice, categorize, ecodes, list_devices  # type: ignore[import-not-found]
 
 from ..config import LiveConfig
 
 log = logging.getLogger(__name__)
+
+# Keys, die ein echtes Tastatur-Eingabegerät (Barcode-Scanner, Tastatur,
+# Wedge-Reader) haben muss. HDMI-CEC-Inputs scheitern hier durch.
+_REQUIRED_KEYS = (
+    ecodes.KEY_ENTER,
+    ecodes.KEY_A,
+    ecodes.KEY_0,
+)
+
+
+def _looks_like_scanner(dev: InputDevice) -> bool:
+    """Heuristik: USB-Keyboard mit Buchstaben + Ziffern + Enter.
+
+    Filtert HDMI-CEC-Inputs (vc4-hdmi-*) und andere Pseudo-Keyboards aus,
+    die nur Multimedia-Tasten besitzen.
+    """
+    try:
+        caps = dev.capabilities().get(ecodes.EV_KEY, [])
+    except OSError:
+        return False
+    cap_set = set(caps)
+    if not all(k in cap_set for k in _REQUIRED_KEYS):
+        return False
+    name = (dev.name or "").lower()
+    # HDMI-CEC explizit ausschließen, falls eines mal alle KEY-Caps hat.
+    if "hdmi" in name or "vc4" in name:
+        return False
+    phys = (dev.phys or "").lower()
+    # USB-Geräte bevorzugt; intern (z.B. „virtual“) ignorieren.
+    return "usb" in phys or not phys
+
+
+def autodetect_path() -> str | None:
+    """Sucht das erste passende Eingabegerät unter ``/dev/input/event*``.
+
+    Bevorzugt Devices, deren Name nach Scanner aussieht
+    (``barcode``/``scanner``/``hid``); sonst das erste, das zumindest die
+    Pflicht-Keys hat. Gibt ``None`` zurück, wenn nichts gefunden wurde.
+    """
+    candidates: list[tuple[int, str, str]] = []  # (priority, path, name)
+    for path in sorted(list_devices()):
+        try:
+            dev = InputDevice(path)
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        try:
+            if not _looks_like_scanner(dev):
+                continue
+            name_lc = (dev.name or "").lower()
+            if any(t in name_lc for t in ("barcode", "scanner")):
+                priority = 0
+            elif "hid" in name_lc:
+                priority = 1
+            else:
+                priority = 2
+            candidates.append((priority, path, dev.name or "?"))
+        finally:
+            try:
+                dev.close()
+            except OSError:
+                pass
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: (x[0], x[1]))
+    prio, path, name = candidates[0]
+    log.info(
+        "Auto-Detect: %s (%s, prio=%d, %d Kandidat(en))",
+        path, name, prio, len(candidates),
+    )
+    return path
 
 _NORMAL = {
     "KEY_1": "1", "KEY_2": "2", "KEY_3": "3", "KEY_4": "4", "KEY_5": "5",
@@ -58,12 +131,26 @@ def _open(path: str) -> InputDevice | None:
 
 
 def iter_scans(live: LiveConfig) -> Iterator[str]:
-    path = live.reader.device_path
-    log.info("Tastatur-Reader auf %s", path)
+    configured = (live.reader.device_path or "").strip()
+    auto = configured == "" or configured.lower() == "auto"
+    if auto:
+        log.info("Tastatur-Reader: Auto-Detect aktiviert")
+    else:
+        log.info("Tastatur-Reader auf %s", configured)
 
     while True:
+        path = configured if not auto else (autodetect_path() or "")
+        if not path:
+            log.warning(
+                "Kein passendes Eingabegerät gefunden – warte auf Scanner …"
+            )
+            time.sleep(2.0)
+            continue
         dev = _open(path)
         if dev is None:
+            # Beim nächsten Versuch erneut scannen – vielleicht hat der
+            # USB-Stecker zwischenzeitlich umgehängt und das Gerät heißt
+            # anders.
             time.sleep(2.0)
             continue
 
