@@ -69,6 +69,14 @@
       "reader_mode": "keyboard",
       "inout": "in",
       "interface_id": "1"
+    },
+    {
+      "pi_id": "hotsport-pi-05",
+      "name": "SUP Eingang",
+      "location": "hotsport",
+      "reader_mode": "keyboard",
+      "inout": "in",
+      "interface_id": "3"
     }
   ]
 }
