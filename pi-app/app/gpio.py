@@ -3,8 +3,10 @@
 Buzzer-Töne sind bewusst musikalisch gewählt, damit sie selbst aus dem Augenwinkel
 unterscheidbar sind:
 
-- `beep_valid`    – aufsteigender Zwei-Ton (C5 → G5), kurz, freundlich.
-- `beep_invalid`  – langes absteigendes Brummen (A4 → A2), klar negativ.
+- `beep_valid`    – aufsteigende C-Quint-Triade (C5 → G5 → C6), kurz,
+                    hell, freundlich. ~260 ms.
+- `beep_invalid`  – absteigende Quarte plus tiefer Doppel-Brummer
+                    (F4 → C4 → F3 / F3), klar negativ. ~550 ms.
 - `beep_error`    – schnelles dreifaches Stuttern bei tiefer Frequenz, NICHT
                     mit Invalid verwechselbar (Netzwerk-/API-Fehler).
 - `beep_startup`  – kurzer Dreiklang (C5 → E5 → G5 → C6) als „Bereit"-Signal.
@@ -33,6 +35,7 @@ _C2 = 65
 _A2 = 110
 _C3 = 131
 _E3 = 165
+_F3 = 175
 _A3 = 220
 _C4 = 262
 _E4 = 330
@@ -144,24 +147,36 @@ class GpioController:
             self._backend.open_relay(self._cfg.relay_pulse_seconds)
 
     def beep_valid(self) -> None:
-        """Kurzer aufsteigender Zwei-Ton: C5 → G5. Dauer ~0,25 s."""
-        with self._lock:
-            self._backend.beep(_C5, 0.07)
-            self._backend.silence(0.02)
-            self._backend.beep(_G5, 0.14)
+        """Aufsteigende C-Quint-Triade mit Oktav-Auflösung – „ding-ding-DONG".
 
-    def beep_invalid(self) -> None:
-        """Langes absteigendes Brummen: A4 → E4 → A3 → A2. Dauer ~0,7 s.
-
-        Bewusst lang und fallend, damit der Anwender klar versteht, dass kein
-        Zugang besteht. Die Frequenzen sind so gewählt, dass auch günstige
-        Piezos die tieferen Stufen noch hörbar wiedergeben.
+        Drei kurze Stufen C5 → G5 → C6, der letzte Ton trägt deutlich
+        länger. Klar aufsteigend, hell, freundlich – signalisiert
+        eindeutig „bitte durch". Total ~260 ms, knapp genug damit der
+        Durchlauf nicht stockt.
         """
         with self._lock:
-            self._backend.beep(_A4, 0.10)
-            self._backend.beep(_E4, 0.12)
-            self._backend.beep(_A3, 0.18)
-            self._backend.beep(_A2, 0.25)
+            self._backend.beep(_C5, 0.04)
+            self._backend.silence(0.015)
+            self._backend.beep(_G5, 0.04)
+            self._backend.silence(0.015)
+            self._backend.beep(_C6, 0.18)
+
+    def beep_invalid(self) -> None:
+        """Absteigende Quarte mit tiefer Bestätigung – „bä-bä-BUMMM".
+
+        Mittellage F4 → C4 → F3, kurze Pause, dann bestätigender tiefer
+        Brummer auf F3. Bewusst klar absteigend und im tiefen Register,
+        damit es sich von:
+        - `beep_error`     (3× gleich-tonige Stutter auf E3) und
+        - `beep_disabled`  (sanfter F4-Doppelklopf)
+        unmissverständlich abhebt. Dauer ~550 ms.
+        """
+        with self._lock:
+            self._backend.beep(_F4, 0.10)
+            self._backend.beep(_C4, 0.10)
+            self._backend.beep(_F3, 0.10)
+            self._backend.silence(0.05)
+            self._backend.beep(_F3, 0.22)
 
     def beep_error(self) -> None:
         """Drei kurze tiefe Stutter (Netzwerk-/API-Fehler).
