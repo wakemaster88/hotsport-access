@@ -16,7 +16,7 @@
   ],
 
   "hub": {
-    "base_url": "auto",
+    "base_url": "http://192.168.0.85:8765",
     "discover": true,
     "hub_port": 8765,
     "discover_interval_seconds": 15.0,
