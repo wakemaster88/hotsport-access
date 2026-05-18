@@ -1,0 +1,17 @@
+[Unit]
+Description=Hotsport Access Pi-Updater
+After=network-online.target hotsport-access.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=HOTSPORT_ACCESS_CONFIG=/etc/hotsport-access/config.toml
+ExecStart=/opt/hotsport-access/venv/bin/python -m updater.updater
+WorkingDirectory=/opt/hotsport-access/current
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,111 @@
+{% if pis %}
+<table>
+    <thead>
+        <tr>
+            <th></th>
+            <th>Pi</th>
+            <th>Standort</th>
+            <th>IP / Modell</th>
+            <th>Version</th>
+            <th>System</th>
+            <th>Letzter Scan</th>
+            <th>Heartbeat</th>
+            <th>Status</th>
+            <th>Aktion</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in pis %}
+            {% set offline = (now - (p["last_seen"] or 0)) > offline_threshold %}
+            {% set in_sync = p["desired_version"] is none or p["desired_version"] == p["current_version"] %}
+            {% set has_settings = p["interface_id"] %}
+            {% set is_disabled = (p["enabled"] == 0) %}
+            <tr class="{{ 'row-disabled' if is_disabled else ('row-offline' if offline else ('row-warn' if not in_sync or not has_settings else 'row-ok')) }}">
+                <td>
+                    <button type="button" class="toggle"
+                            onclick="toggleDetail('det-{{ p['pi_id'] }}')">▾</button>
+                </td>
+                <td>
+                    <strong>{{ p["name"] or p["pi_id"] }}</strong><br />
+                    <code class="small">{{ p["pi_id"] }}</code>
+                </td>
+                <td>
+                    {{ p["location"] or "—" }}<br />
+                    <span class="muted small">{{ p["inout"] or "—" }} · iface {{ p["interface_id"] or "—" }}</span>
+                </td>
+                <td>
+                    {{ p["ip"] or "—" }}<br />
+                    <span class="muted small">{{ p["model"] or "" }}</span>
+                </td>
+                <td>
+                    <code>{{ p["current_version"] or "—" }}</code><br />
+                    <span class="muted small">soll: <code>{{ p["desired_version"] or "—" }}</code></span>
+                </td>
+                <td class="small">
+                    {% if p["cpu_temp_c"] is not none %}
+                        🌡 {{ "%.1f" % p["cpu_temp_c"] }} °C<br />
+                    {% endif %}
+                    {% if p["mem_total_mb"] %}
+                        Mem {{ p["mem_used_mb"] }}/{{ p["mem_total_mb"] }} MB<br />
+                    {% endif %}
+                    {% if p["uptime_seconds"] %}
+                        ⏱ {{ p["uptime_seconds"] | humantime }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if p["last_scan_at"] %}
+                        <code>{{ p["last_scan_code"] }}</code>
+                        {% if p["last_scan_grant"] == 1 %}
+                            <span class="ok">✓</span>
+                        {% else %}
+                            <span class="bad">✗</span>
+                        {% endif %}
+                        <br />
+                        <span class="muted small">{{ p["last_scan_at"] | age }}</span>
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td>{{ p["last_seen"] | age }}</td>
+                <td>
+                    {% if is_disabled %}
+                        <span class="muted-badge">deaktiviert</span>
+                    {% elif offline %}
+                        <span class="bad">offline</span>
+                    {% elif not has_settings %}
+                        <span class="warn">unkonfiguriert</span>
+                    {% elif p["healthy"] != 1 %}
+                        <span class="bad">unhealthy</span>
+                    {% elif not in_sync %}
+                        <span class="warn">updatet…</span>
+                    {% else %}
+                        <span class="ok">ok</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form action="/admin/set-version" method="post" class="inline-form">
+                        <input type="hidden" name="pi_id" value="{{ p['pi_id'] }}" />
+                        <select name="version">
+                            <option value="">— keine Vorgabe —</option>
+                            {% for r in releases %}
+                                <option value="{{ r.version }}"
+                                    {% if p["desired_version"] == r.version %}selected{% endif %}>
+                                    {{ r.version }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit">Setzen</button>
+                    </form>
+                </td>
+            </tr>
+            <tr id="det-{{ p['pi_id'] }}" class="detail-row">
+                <td colspan="10">
+                    {% include "_pi_detail.html" %}
+                </td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="muted">Noch keine Pis registriert. Sobald ein Pi-Daemon läuft, sendet er einen Heartbeat und erscheint hier.</p>
+{% endif %}

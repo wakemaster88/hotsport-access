@@ -1,0 +1,4 @@
+# Optional, nur für Pis im Kamera-QR-Modus.
+# OpenCV ist groß – auf dem Pi besser via apt: sudo apt install python3-opencv
+# Falls per pip nötig:
+opencv-python-headless==4.10.0.84

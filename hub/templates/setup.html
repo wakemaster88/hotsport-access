@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+
+{% block title %}Pi einrichten · Hotsport Access{% endblock %}
+
+{% block content %}
+
+<div class="setup-intro card">
+    <h2>Neuen Raspberry Pi einrichten</h2>
+    <p>
+        Diese Anleitung führt dich in fünf Schritten durch die Inbetriebnahme eines
+        neuen Drehkreuz-Pis. Geplante Dauer: <strong>~10 Minuten</strong> pro Pi
+        (zzgl. Zeit für das Image-Flashen).
+    </p>
+
+    <div class="setup-creds">
+        <div class="cred-row">
+            <span class="cred-label">Hub-URL</span>
+            <code class="copyable" data-copy="{{ hub_url }}">{{ hub_url }}</code>
+        </div>
+
+        <div class="cred-row">
+            <span class="cred-label">Pi-Token</span>
+            {% if pi_token %}
+                <code class="copyable token-value"
+                      id="token-display"
+                      data-copy="{{ pi_token }}"
+                      data-token="{{ pi_token }}"
+                      data-revealed="0">••••••••••••••••</code>
+                <button type="button" class="btn-tiny" id="token-reveal">
+                    Anzeigen
+                </button>
+                <span class="muted small">
+                    Klick zum Anzeigen, weiterer Klick auf den Token kopiert ihn.
+                </span>
+            {% else %}
+                <span class="badge-warn">Kein Token gesetzt</span>
+                <span class="muted small">
+                    Setze <code>HOTSPORT_HUB_PI_TOKEN</code> in
+                    <code>/etc/hotsport-hub.env</code> und starte den Hub neu.
+                </span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- ============ Schritt 0: Was du brauchst ============ -->
+
+<div class="setup-step card">
+    <div class="step-head">
+        <span class="step-num">0</span>
+        <h3>Material &amp; Voraussetzungen</h3>
+    </div>
+    <div class="step-body">
+        <ul class="checklist">
+            <li>Raspberry Pi (3B+, 4 oder Zero 2 W) mit microSD-Karte (min. 8 GB)</li>
+            <li>Netzteil (offizielles Pi-Netzteil empfohlen) und LAN- oder WLAN-Verbindung
+                ins selbe Netz wie der Hub</li>
+            <li>Scanner-Hardware: USB-QR-/RFID-Wedge-Scanner, USB-Kamera oder
+                MFRC522-RFID-Modul (siehe Schritt&nbsp;5)</li>
+            <li>Relais-Modul (5&nbsp;V, aktiv-high) am GPIO 24 und Buzzer am GPIO 23
+                (Standard, beides im Dashboard pro Pi änderbar)</li>
+            <li>Den <strong>Hub-Pi-Token</strong> – findest du
+                <a href="#" onclick="document.querySelector('.setup-creds').scrollIntoView({behavior:'smooth'}); return false;">oben in dieser Anleitung</a>
+                (Quelle: <code>HOTSPORT_HUB_PI_TOKEN</code> in
+                <code>/etc/hotsport-hub.env</code>).</li>
+            <li><strong>Internet auf dem Pi – nur beim ersten Bootstrap.</strong>
+                Der Installer zieht ~30 MB Pakete (apt + pip). Nach Schritt 2
+                kann der Pi dauerhaft offline bleiben; alle weiteren Updates
+                kommen vom Hub.</li>
+        </ul>
+    </div>
+</div>
+
+<!-- ============ Schritt 1: Image flashen ============ -->
+
+<div class="setup-step card">
+    <div class="step-head">
+        <span class="step-num">1</span>
+        <h3>Raspberry Pi OS Lite flashen</h3>
+    </div>
+    <div class="step-body">
+        <p>
+            Lade den <a href="https://www.raspberrypi.com/software/" target="_blank"
+            rel="noopener">Raspberry Pi Imager</a> und flashe
+            <strong>Raspberry Pi OS Lite (64-bit)</strong> auf die SD-Karte.
+            Im Imager unter <em>„OS-Anpassungen"</em> bitte folgendes setzen:
+        </p>
+        <ul class="checklist">
+            <li>Hostname: <code>hotsport-pi-<em>NN</em></code> (z.B. <code>hotsport-pi-01</code>)</li>
+            <li>SSH aktivieren – mit Passwort <em>oder</em> Public-Key</li>
+            <li>Benutzer: <code>pi</code> oder ein eigener Admin-User</li>
+            <li>WLAN/Ethernet-Konfig falls nicht per LAN angeschlossen</li>
+            <li>Locale &amp; Tastatur: Deutsch</li>
+        </ul>
+        <p class="hint">
+            <strong>Tipp:</strong> Nimm für jeden Pi einen eindeutigen Hostnamen.
+            Der Hub nutzt diesen als Default-<code>pi_id</code>, falls du keine
+            eigene setzt.
+        </p>
+    </div>
+</div>
+
+<!-- ============ Schritt 2: One-Command Bootstrap ============ -->
+
+<div class="setup-step card">
+    <div class="step-head">
+        <span class="step-num">2</span>
+        <h3>Pi-App vom Hub installieren (ein Befehl)</h3>
+    </div>
+    <div class="step-body">
+        <p>
+            SSH auf den Pi und einen einzigen Befehl ausführen. Hub-URL ist
+            schon eingebettet, der Installer fragt Token, Pi-ID, Name, Standort
+            und Reader-Modus interaktiv ab (mit sinnvollen Defaults).
+        </p>
+        <p class="hint">
+            <strong>Wichtig:</strong> Der Pi braucht <em>für diesen einen Schritt</em>
+            Internet (apt + pip Download, ~30 MB). Danach kann er für immer
+            offline bleiben.
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-bootstrap">Kopieren</button>
+            <pre id="code-bootstrap"><code>curl -fsSL {{ hub_url }}/install.sh | sudo bash</code></pre>
+        </div>
+
+        <details>
+            <summary>Schneller mit Token als Argument (kein interaktiver Prompt)</summary>
+            <div class="code-block" data-lang="bash">
+                <button type="button" class="copy-btn" data-copy-target="code-bootstrap-token">Kopieren</button>
+                <pre id="code-bootstrap-token"><code>curl -fsSL {{ hub_url }}/install.sh | sudo bash -s -- DEIN-TOKEN</code></pre>
+            </div>
+            <p class="muted small">
+                Pi-ID, Name etc. werden weiterhin interaktiv gefragt. Für
+                vollautomatische Installation (z.B. Provisioning per Ansible)
+                können alle Werte als Flags übergeben werden:
+                <code>--hub URL --token TOKEN --pi-id ID --name "..." --location ... --mode keyboard --yes</code>.
+            </p>
+        </details>
+
+        <p class="hint">
+            Das <strong>Pi-Token</strong> ist <code>HOTSPORT_HUB_PI_TOKEN</code>
+            aus <code>/etc/hotsport-hub.env</code> auf dem Hub. Es ist für alle
+            Pis dasselbe und wird vom Installer beim interaktiven Prompt
+            verdeckt eingegeben (kein Echo).
+        </p>
+        <p class="muted small">
+            Idempotent – ein zweiter Lauf überschreibt weder venv noch
+            <code>config.toml</code>. Für Routine-Updates ist nicht das Script,
+            sondern der <code>hotsport-updater</code>-Service zuständig.
+        </p>
+    </div>
+</div>
+
+<!-- ============ Schritt 3: Im Dashboard konfigurieren ============ -->
+
+<div class="setup-step card">
+    <div class="step-head">
+        <span class="step-num">3</span>
+        <h3>Pi im Dashboard konfigurieren</h3>
+    </div>
+    <div class="step-body">
+        <p>
+            Im <a href="/">Dashboard</a> beim neuen Pi auf das <code>▾</code> klicken und
+            in der rechten Spalte folgendes setzen:
+        </p>
+        <dl class="config-list">
+            <dt>Interface-ID</dt>
+            <dd>Die <em>resourceId</em> aus der Binarytec-API (z.B. <code>101</code>).</dd>
+
+            <dt>Richtung</dt>
+            <dd><code>in</code> (Eingang) oder <code>out</code> (Ausgang).</dd>
+
+            <dt>Reader-Modus</dt>
+            <dd>
+                <code>keyboard</code> – USB-Wedge-Scanner (Standard, einfachste Variante)<br />
+                <code>qr_camera</code> – USB-Kamera mit OpenCV<br />
+                <code>rfid_mfrc522</code> – SPI-RFID-Modul
+            </dd>
+
+            <dt>Reader-Devicepfad / Kamera-Index</dt>
+            <dd>
+                Bei Wedge-Scannern <code>/dev/input/event0</code> (mit
+                <code>ls /dev/input/by-id/</code> auf dem Pi prüfen).
+                Bei Kameras meist <code>0</code>.
+            </dd>
+
+            <dt>GPIO-Pins</dt>
+            <dd>
+                Standard: Relais GPIO 24, Buzzer GPIO 23, Pulsdauer 1.0 s.
+                Nur ändern, wenn die Verkabelung anders ist.
+            </dd>
+        </dl>
+        <p class="hint">
+            Nach <em>Speichern</em> ändert sich der Config-Fingerprint. Der Pi
+            erkennt das beim nächsten Heartbeat (≤ 5 s) und startet sich
+            automatisch mit der neuen Konfig neu – kein SSH nötig.
+        </p>
+    </div>
+</div>
+
+<!-- ============ Schritt 4: Reader-spezifische Hinweise ============ -->
+
+<div class="setup-step card">
+    <div class="step-head">
+        <span class="step-num">4</span>
+        <h3>Reader-spezifische Hinweise</h3>
+    </div>
+    <div class="step-body">
+        <p>
+            <code>--mode</code> beim Bootstrap entscheidet, welche Pakete der
+            Installer mit-installiert. Wenn du den Modus später wechseln willst,
+            reicht meistens das Setzen im Dashboard plus das Nachinstallieren
+            der Reader-Pakete:
+        </p>
+        <p>
+            <strong>USB-Kamera (qr_camera):</strong>
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-camera">Kopieren</button>
+            <pre id="code-camera"><code>sudo apt-get install -y python3-opencv
+sudo /opt/hotsport-access/venv/bin/pip install \
+    -r /opt/hotsport-access/current/requirements-camera.txt
+sudo systemctl restart hotsport-access</code></pre>
+        </div>
+
+        <p style="margin-top: 1rem;">
+            <strong>MFRC522-RFID (SPI):</strong> Einmalig
+            <code>sudo raspi-config</code> → <em>Interface Options</em> →
+            <em>SPI aktivieren</em>, dann:
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-rfid">Kopieren</button>
+            <pre id="code-rfid"><code>sudo apt-get install -y python3-spidev
+sudo /opt/hotsport-access/venv/bin/pip install \
+    -r /opt/hotsport-access/current/requirements-rfid.txt
+sudo systemctl restart hotsport-access</code></pre>
+        </div>
+    </div>
+</div>
+
+<!-- ============ Buzzer-Töne Cheatsheet ============ -->
+
+<div class="setup-step card">
+    <div class="step-head">
+        <span class="step-num">♪</span>
+        <h3>Akustisches Feedback verstehen</h3>
+    </div>
+    <div class="step-body">
+        <table class="compact">
+            <thead><tr><th>Ton</th><th>Bedeutung</th></tr></thead>
+            <tbody>
+                <tr><td><strong>Aufsteigender Doppelton</strong> (C5→G5)</td>
+                    <td>Zugang gewährt – Drehkreuz öffnet</td></tr>
+                <tr><td><strong>Langes absteigendes Brummen</strong> (A4→A2)</td>
+                    <td>Ticket ungültig – Zugang verweigert</td></tr>
+                <tr><td><strong>3× kurzes Stuttern</strong> (E3)</td>
+                    <td>API/Netzwerk-Fehler – Server nicht erreichbar</td></tr>
+                <tr><td><strong>Tiefer Doppelton</strong> (C3)</td>
+                    <td>Hub-Verbindung verloren (im Hintergrund)</td></tr>
+                <tr><td><strong>Weicher F4-„Klopf-Klopf"</strong></td>
+                    <td>Pi ist im Dashboard <em>deaktiviert</em></td></tr>
+                <tr><td><strong>C-Dur-Akkord aufsteigend</strong> (C5→C6)</td>
+                    <td>Service ist gestartet und bereit</td></tr>
+                <tr><td><strong>Kurzer Klick</strong> (G5, 50&nbsp;ms)</td>
+                    <td>Neue Konfiguration vom Hub übernommen</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ============ Troubleshooting ============ -->
+
+<div class="setup-step card">
+    <div class="step-head">
+        <span class="step-num">?</span>
+        <h3>Troubleshooting</h3>
+    </div>
+    <div class="step-body">
+        <details>
+            <summary>Pi taucht nicht im Dashboard auf</summary>
+            <ul class="checklist">
+                <li>Auf dem Pi: <code>sudo systemctl status hotsport-access</code> –
+                    Dienst aktiv?</li>
+                <li>Logs: <code>journalctl -u hotsport-access -n 50 --no-pager</code></li>
+                <li>Vom Pi aus den Hub testen:
+                    <code>curl -i {{ hub_url }}/health</code></li>
+                <li>Token korrekt? In <code>/etc/hotsport-access/config.toml</code>
+                    muss <code>pi_token</code> exakt dem
+                    <code>HOTSPORT_HUB_PI_TOKEN</code> auf dem Hub entsprechen.</li>
+            </ul>
+        </details>
+        <details>
+            <summary>Status bleibt „unkonfiguriert"</summary>
+            <p>
+                Im Pi-Detailpanel (▾) muss eine <code>interface_id</code> gesetzt
+                und gespeichert werden. Erst dann ist die Live-Config vollständig
+                und der Pi geht in den Bereit-Status.
+            </p>
+        </details>
+        <details>
+            <summary>Reader liest nichts ein</summary>
+            <ul class="checklist">
+                <li><strong>Wedge-Scanner:</strong> <code>ls /dev/input/by-id/</code> –
+                    den passenden Pfad als <em>Reader-Devicepfad</em> ins Dashboard
+                    eintragen.</li>
+                <li><strong>Kamera:</strong> <code>v4l2-ctl --list-devices</code>
+                    auf dem Pi installieren und richtigen Index setzen.</li>
+                <li><strong>RFID:</strong> SPI in <code>raspi-config</code> aktiv?
+                    User <code>hotsport</code> ist Mitglied der Gruppe
+                    <code>spi</code>?</li>
+            </ul>
+        </details>
+        <details>
+            <summary>Drehkreuz öffnet nicht</summary>
+            <p>
+                Im Dashboard prüfen: ist der Pi <em>aktiv</em>? Stimmt der
+                <em>Relais-GPIO</em>? Test direkt auf dem Pi:
+            </p>
+            <div class="code-block compact" data-lang="bash">
+                <pre><code>sudo /opt/hotsport-access/venv/bin/python -c \
+  "from gpiozero import OutputDevice; import time; \
+   r = OutputDevice(24); r.on(); time.sleep(1); r.off()"</code></pre>
+            </div>
+        </details>
+    </div>
+</div>
+
+<script>
+document.addEventListener('click', async function (e) {
+    // Token zuerst aus Maskierung enthüllen (vor copyable-Handling)
+    var revealBtn = e.target.closest('#token-reveal');
+    if (revealBtn) {
+        var disp = document.getElementById('token-display');
+        if (disp) {
+            var revealed = disp.dataset.revealed === '1';
+            if (revealed) {
+                disp.textContent = '••••••••••••••••';
+                disp.dataset.revealed = '0';
+                revealBtn.textContent = 'Anzeigen';
+            } else {
+                disp.textContent = disp.dataset.token;
+                disp.dataset.revealed = '1';
+                revealBtn.textContent = 'Verbergen';
+            }
+        }
+        return;
+    }
+
+    var btn = e.target.closest('.copy-btn');
+    if (btn) {
+        var targetId = btn.getAttribute('data-copy-target');
+        var el = document.getElementById(targetId);
+        if (!el) return;
+        var text = el.innerText.replace(/\n+$/, '');
+        try {
+            await navigator.clipboard.writeText(text);
+            var orig = btn.textContent;
+            btn.textContent = 'Kopiert ✓';
+            btn.classList.add('copied');
+            setTimeout(function () {
+                btn.textContent = orig;
+                btn.classList.remove('copied');
+            }, 1500);
+        } catch (err) {
+            btn.textContent = 'Fehler – manuell kopieren';
+        }
+        return;
+    }
+    var copyable = e.target.closest('.copyable');
+    if (copyable && copyable.dataset.copy) {
+        try {
+            await navigator.clipboard.writeText(copyable.dataset.copy);
+            var prev = copyable.textContent;
+            copyable.textContent = 'Kopiert ✓';
+            setTimeout(function () {
+                // Bei Token: maskierten Wert zurücksetzen, falls noch nicht enthüllt
+                if (copyable.id === 'token-display' && copyable.dataset.revealed !== '1') {
+                    copyable.textContent = '••••••••••••••••';
+                } else {
+                    copyable.textContent = prev;
+                }
+            }, 1200);
+        } catch (err) { /* ignore */ }
+    }
+});
+</script>
+
+{% endblock %}

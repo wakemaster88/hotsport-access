@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Hotsport Access{% endblock %}</title>
+    <link rel="icon" type="image/png" href="/static/brand/favicon.png" />
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="/static/htmx.min.js"></script>
+</head>
+<body>
+    <header class="brand-header">
+        <div class="brand-header-inner">
+            <a href="/" class="brand-logo">
+                <img src="/static/brand/hotsport-logo-white.png"
+                     alt="Hotsport"
+                     width="180" height="64" />
+            </a>
+            <div class="brand-title">
+                <span class="brand-eyebrow">Access Control</span>
+                <h1>Drehkreuz-Verwaltung</h1>
+            </div>
+            <nav class="brand-nav">
+                <a href="/" class="{{ 'active' if active_nav == 'dashboard' else '' }}">Dashboard</a>
+                <a href="/setup" class="{{ 'active' if active_nav == 'setup' else '' }}">Pi einrichten</a>
+            </nav>
+            <div class="brand-meta muted">
+                <span class="status-dot"></span>
+                Hub online · {{ now | dt }}
+            </div>
+        </div>
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    <footer class="muted">
+        Hotsport Access · Offline-Schwelle {{ offline_threshold }}s
+    </footer>
+</body>
+</html>

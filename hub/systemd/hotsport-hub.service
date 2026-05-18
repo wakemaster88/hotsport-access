@@ -1,0 +1,28 @@
+[Unit]
+Description=Hotsport Access Hub (Dashboard + Update-Server)
+Documentation=https://github.com/hotsport/hotsport-access
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hotsport
+Group=hotsport
+WorkingDirectory=/opt/hotsport-hub
+EnvironmentFile=-/etc/hotsport-hub/hub.env
+ExecStart=/opt/hotsport-hub/venv/bin/uvicorn app.main:app \
+    --host ${HOTSPORT_HUB_HOST} \
+    --port ${HOTSPORT_HUB_PORT} \
+    --no-access-log
+Restart=on-failure
+RestartSec=2s
+
+# Sandboxing
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/hotsport-hub /var/log/hotsport-hub
+
+[Install]
+WantedBy=multi-user.target

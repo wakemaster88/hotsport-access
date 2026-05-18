@@ -1,0 +1,49 @@
+# Default-deny: Top-Level wird komplett ignoriert.
+# Nur das neue System (hub/, pi-app/) und ein paar Meta-Dateien werden getrackt.
+# Der alte LAMP-Code (PHP, css/, js/, python_files/) bleibt lokal als Referenz.
+/*
+
+# Whitelist: was tatsächlich ins Repo gehört
+!.gitignore
+!.gitattributes
+!README.md
+!LICENSE
+!/hub/
+!/pi-app/
+
+# Innerhalb der getrackten Ordner: typisches Aufräumen
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.tox/
+
+# Lokale Python-Umgebungen (werden auf Pi und Hub via Installer neu erzeugt)
+**/.venv/
+**/.venv-local/
+**/venv/
+
+# Build-Artefakte: Releases gehören zu GitHub-Releases, nicht ins Repo
+pi-app/dist/*.zip
+pi-app/dist/*.sha256
+
+# Lokale Hub-Daten: SQLite + Releases-Cache + alles unter data/
+hub/data/
+hub/**/*.sqlite
+hub/**/*.sqlite3
+hub/**/*.sqlite3-journal
+hub/**/*.db
+**/hotsport-hub.env
+**/hotsport-hub-*.env
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log

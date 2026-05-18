@@ -1,0 +1,115 @@
+<div class="pi-detail">
+    {% if p['enabled'] == 0 %}
+        <div class="banner banner-disabled">
+            <strong>Dieser Pi ist deaktiviert.</strong>
+            Scans werden geloggt, aber es erfolgt <em>kein API-Aufruf</em> und
+            <em>kein Drehkreuz-Impuls</em>. Aktivieren in den Einstellungen rechts.
+        </div>
+    {% endif %}
+    <div class="pi-detail-grid">
+        <div>
+            <h3>Systeminformationen</h3>
+            <dl class="kv">
+                <dt>Pi-ID</dt><dd><code>{{ p["pi_id"] }}</code></dd>
+                <dt>Name</dt><dd>{{ p["name"] or "—" }}</dd>
+                <dt>Standort</dt><dd>{{ p["location"] or "—" }}</dd>
+                <dt>IP-Adresse</dt><dd>{{ p["ip"] or "—" }}</dd>
+                <dt>MAC-Adresse</dt><dd><code>{{ p["mac"] or "—" }}</code></dd>
+                <dt>Modell</dt><dd>{{ p["model"] or "—" }}</dd>
+                <dt>Kernel</dt><dd><code class="small">{{ p["kernel"] or "—" }}</code></dd>
+                <dt>Uptime</dt><dd>{{ p["uptime_seconds"] | humantime }}</dd>
+                <dt>CPU-Temperatur</dt>
+                <dd>
+                    {% if p["cpu_temp_c"] is not none %}
+                        {{ "%.1f" % p["cpu_temp_c"] }} °C
+                        {% if p["cpu_temp_c"] > 75 %}<span class="bad">heiß</span>
+                        {% elif p["cpu_temp_c"] > 65 %}<span class="warn">warm</span>{% endif %}
+                    {% else %}—{% endif %}
+                </dd>
+                <dt>Last (1m)</dt><dd>{{ "%.2f" % p["load_1"] if p["load_1"] is not none else "—" }}</dd>
+                <dt>Speicher</dt>
+                <dd>
+                    {% if p["mem_total_mb"] %}
+                        {{ p["mem_used_mb"] | humansize }} / {{ p["mem_total_mb"] | humansize }}
+                    {% else %}—{% endif %}
+                </dd>
+                <dt>Datenträger frei</dt>
+                <dd>
+                    {% if p["disk_free_mb"] %}
+                        {{ p["disk_free_mb"] | humansize }}
+                        {% if p["disk_total_mb"] %}/ {{ p["disk_total_mb"] | humansize }}{% endif %}
+                    {% else %}—{% endif %}
+                </dd>
+                <dt>Aktuelle Version</dt><dd><code>{{ p["current_version"] or "—" }}</code></dd>
+                <dt>Soll-Version</dt><dd><code>{{ p["desired_version"] or "—" }}</code></dd>
+            </dl>
+        </div>
+        <div>
+            <h3>Einstellungen</h3>
+            <form action="/admin/pi-settings" method="post" class="grid-form">
+                <input type="hidden" name="pi_id" value="{{ p['pi_id'] }}" />
+                <label class="full-width toggle-label {{ 'is-disabled' if p['enabled'] == 0 else '' }}">
+                    <input type="checkbox" name="enabled" value="on"
+                           {% if p['enabled'] != 0 %}checked{% endif %} />
+                    <span>
+                        <strong>Pi aktiv</strong>
+                        <span class="muted small">
+                            Wenn deaktiviert: Scanner liest weiter, aber kein API-Call und
+                            kein Drehkreuz-Impuls. Nur kurzer Hinweis-Beep.
+                        </span>
+                    </span>
+                </label>
+                <label>Anzeigename
+                    <input type="text" name="name" value="{{ p['name'] or '' }}" />
+                </label>
+                <label>Standort
+                    <input type="text" name="location" value="{{ p['location'] or '' }}"
+                           placeholder="hotsport" />
+                </label>
+                <label>Interface-ID (Binarytec resourceId)
+                    <input type="text" name="interface_id"
+                           value="{{ p['interface_id'] or '' }}" />
+                </label>
+                <label>Richtung
+                    <select name="inout">
+                        <option value="in"  {% if p['inout'] == 'in'  %}selected{% endif %}>in (Eingang)</option>
+                        <option value="out" {% if p['inout'] == 'out' %}selected{% endif %}>out (Ausgang)</option>
+                    </select>
+                </label>
+                <label>Reader-Modus
+                    <select name="reader_mode">
+                        {% for m in reader_modes %}
+                            <option value="{{ m }}" {% if p['reader_mode'] == m %}selected{% endif %}>{{ m }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>Reader-Devicepfad
+                    <input type="text" name="reader_device_path"
+                           value="{{ p['reader_device_path'] or '/dev/input/event0' }}" />
+                </label>
+                <label>Kamera-Index
+                    <input type="number" name="reader_camera_index" min="0" max="9"
+                           value="{{ p['reader_camera_index'] if p['reader_camera_index'] is not none else 0 }}" />
+                </label>
+                <label>Relais-GPIO (BCM)
+                    <input type="number" name="relay_pin" min="0" max="40"
+                           value="{{ p['relay_pin'] if p['relay_pin'] is not none else 24 }}" />
+                </label>
+                <label>Relais-Pulsdauer (s)
+                    <input type="number" name="relay_pulse_seconds" min="0.1" step="0.1"
+                           value="{{ p['relay_pulse_seconds'] if p['relay_pulse_seconds'] is not none else 1.0 }}" />
+                </label>
+                <label>Buzzer-GPIO (BCM)
+                    <input type="number" name="buzzer_pin" min="0" max="40"
+                           value="{{ p['buzzer_pin'] if p['buzzer_pin'] is not none else 23 }}" />
+                </label>
+                <label class="full-width">Notizen
+                    <textarea name="notes" rows="2">{{ p['notes'] or '' }}</textarea>
+                </label>
+                <div class="grid-form-actions full-width">
+                    <button type="submit">Speichern (Pi startet automatisch neu)</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

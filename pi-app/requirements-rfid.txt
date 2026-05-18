@@ -1,0 +1,4 @@
+# Optional, nur für Pis im RFID-Modus.
+# Auf dem Pi nach der Basis-Installation per: pip install -r requirements-rfid.txt
+mfrc522==0.0.7
+spidev==3.6

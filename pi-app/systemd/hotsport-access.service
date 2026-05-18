@@ -1,0 +1,27 @@
+[Unit]
+Description=Hotsport Access Pi-Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=root
+Group=root
+WorkingDirectory=/opt/hotsport-access/current
+Environment=HOTSPORT_ACCESS_CONFIG=/etc/hotsport-access/config.toml
+ExecStart=/opt/hotsport-access/venv/bin/python -m app.main
+Restart=always
+RestartSec=2s
+
+# Daemon sendet alle ~paar Sekunden WATCHDOG=1; bleibt das aus, killt
+# systemd den Prozess und startet ihn neu.
+WatchdogSec=60s
+
+Nice=-5
+
+# State-Dir muss beschreibbar bleiben, auch wenn / read-only ist
+ReadWritePaths=/var/lib/hotsport-access /var/log/hotsport-access
+
+[Install]
+WantedBy=multi-user.target

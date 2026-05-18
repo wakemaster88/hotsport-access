@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<section class="card">
+    <h2>Globale API-Einstellungen</h2>
+    <p class="muted small">
+        Gilt für alle Drehkreuz-Pis. Werden bei jedem Heartbeat live an die Pis
+        ausgeliefert. Das Token wird nicht im Klartext angezeigt – leer lassen,
+        um es unverändert zu lassen.
+    </p>
+    <form action="/admin/api-settings" method="post" class="grid-form">
+        <label>Base-URL
+            <input type="text" name="api_base_url"
+                   value="{{ api_settings.get('api.base_url', '') }}"
+                   placeholder="https://192.168.251.50:444"
+                   required pattern="https?://.*" />
+        </label>
+        <label>Bearer-Token
+            <input type="password" name="api_bearer_token"
+                   placeholder="aktuell: {{ api_settings.get('api.bearer_token', '') | mask }}"
+                   autocomplete="off" />
+        </label>
+        <label>TLS prüfen
+            <select name="api_verify_tls">
+                {% set vtls = api_settings.get('api.verify_tls', 'false') %}
+                <option value="false" {% if vtls == 'false' %}selected{% endif %}>nein (selbstsigniert)</option>
+                <option value="true"  {% if vtls == 'true'  %}selected{% endif %}>ja</option>
+                {% if vtls not in ('true', 'false') %}
+                    <option value="{{ vtls }}" selected>CA-Pfad: {{ vtls }}</option>
+                {% endif %}
+            </select>
+        </label>
+        <label>Connect-Timeout (s)
+            <input type="number" name="api_connect_timeout_seconds" min="0.1" step="0.1"
+                   value="{{ api_settings.get('api.connect_timeout_seconds', '1.0') }}" />
+        </label>
+        <label>Request-Timeout (s)
+            <input type="number" name="api_request_timeout_seconds" min="0.1" step="0.1"
+                   value="{{ api_settings.get('api.request_timeout_seconds', '2.0') }}" />
+        </label>
+        <div class="grid-form-actions">
+            <button type="submit">Speichern</button>
+        </div>
+    </form>
+</section>
+
+<section class="card">
+    <h2>Drehkreuze</h2>
+    {% if not pis %}
+        <p class="muted">
+            Noch kein Pi registriert. Folge der
+            <a href="/setup">Schritt-für-Schritt-Anleitung</a>, um den ersten
+            Drehkreuz-Pi einzurichten.
+        </p>
+    {% endif %}
+    <div id="pi-table"
+         hx-get="/fragments/pis"
+         hx-trigger="every 5s"
+         hx-swap="innerHTML">
+        {% include "_pi_table.html" %}
+    </div>
+
+    <details>
+        <summary>Alle Pis auf eine Version setzen</summary>
+        <form action="/admin/set-version" method="post" class="inline-form">
+            <input type="hidden" name="pi_id" value="*" />
+            <label>Soll-Version
+                <select name="version" required>
+                    {% for r in releases %}
+                        <option value="{{ r.version }}">{{ r.version }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button type="submit">Auf alle anwenden</button>
+        </form>
+    </details>
+</section>
+
+<section class="card">
+    <h2>Releases</h2>
+    {% if releases %}
+        <table>
+            <thead><tr><th>Version</th><th>SHA-256</th><th>Größe</th></tr></thead>
+            <tbody>
+                {% for r in releases %}
+                    <tr>
+                        <td><code>{{ r.version }}</code></td>
+                        <td><code class="hash">{{ r.sha256 }}</code></td>
+                        <td>{{ "%.1f" % (r.size_bytes / 1024 / 1024) }} MB</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="muted">Noch keine Releases vorhanden.</p>
+    {% endif %}
+
+    <details>
+        <summary>Neuen Release hochladen</summary>
+        <form action="/admin/upload" method="post" enctype="multipart/form-data" class="inline-form">
+            <label>Version <input name="version" placeholder="z.B. 2026.05.18-1" required pattern="[A-Za-z0-9._\-]+" /></label>
+            <label>ZIP-Datei <input name="file" type="file" accept=".zip" required /></label>
+            <button type="submit">Hochladen</button>
+        </form>
+        <p class="muted small">
+            Erwarteter Dateiname-Pattern: <code>hotsport-access-&lt;version&gt;.zip</code>.
+            Der Hub erstellt die <code>.sha256</code>-Begleitdatei automatisch.
+        </p>
+    </details>
+</section>
+
+<section class="card">
+    <h2>Letzte Scans</h2>
+    <div id="scans"
+         hx-get="/fragments/scans"
+         hx-trigger="every 5s"
+         hx-swap="innerHTML">
+        {% include "_scans.html" %}
+    </div>
+</section>
+
+{% endblock %}

@@ -1,0 +1,32 @@
+{% if scans %}
+<table class="compact">
+    <thead>
+        <tr>
+            <th>Zeit</th>
+            <th>Pi</th>
+            <th>Code</th>
+            <th>Ergebnis</th>
+            <th>Grund</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in scans %}
+            <tr>
+                <td>{{ s["scanned_at"] | age }}</td>
+                <td><code class="small">{{ s["pi_id"] }}</code></td>
+                <td><code>{{ s["code"] }}</code></td>
+                <td>
+                    {% if s["granted"] == 1 %}
+                        <span class="ok">erlaubt</span>
+                    {% else %}
+                        <span class="bad">abgelehnt</span>
+                    {% endif %}
+                </td>
+                <td class="muted small">{{ s["reason"] or "" }}</td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="muted">Noch keine Scans empfangen.</p>
+{% endif %}

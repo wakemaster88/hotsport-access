@@ -1,0 +1,15 @@
+# Kern: schlanke HTTP-Calls + Retry
+httpx==0.27.2
+tenacity==9.0.0
+
+# TOML-Parser für die Bootstrap-Config.
+# Python 3.11+ hat `tomllib` built-in, darunter brauchen wir den Backport.
+# Trifft Raspberry Pi OS Bullseye (Python 3.9); Bookworm (3.11) ignoriert ihn.
+tomli==2.0.2; python_version < "3.11"
+
+# GPIO – auf dem Pi via apt installiert (RPi.GPIO ist bereits dort).
+# gpiozero ist auf Raspberry Pi OS standardmäßig installiert; hier als Fallback:
+gpiozero==2.0.1
+
+# Tastatur-Wedge-Reader (handheld QR-Scanner als USB-Keyboard)
+evdev==1.7.1
