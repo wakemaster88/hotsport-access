@@ -159,6 +159,15 @@ git push</code></pre>
             <code>reader_device_path</code> oder <code>reader_camera_index</code>
             ergänzen – sonst gelten die <code>defaults</code>.
         </p>
+        <p class="muted small">
+            <strong>Mehrere Reader an einem Pi (z.B. RFID + QR):</strong>
+            <code>reader_device_path</code> bleibt auf <code>"auto"</code> –
+            der Pi liest dann <em>alle</em> erkannten USB-Tastatur-Reader
+            parallel (ein Worker-Thread pro Gerät, gemeinsame Scan-Queue).
+            HDMI-Pseudo-Inputs werden gefiltert. Wer feste Pfade will, kann
+            sie komma-getrennt angeben:
+            <code>"/dev/input/event4,/dev/input/event5"</code>.
+        </p>
     </div>
 </div>
 
@@ -300,12 +309,16 @@ sudo bash scripts/install.sh -y hotsport-pi-04 BINARYTEC-TOKEN ""</code></pre>
 
             <dt>Reader-Devicepfad / Kamera-Index</dt>
             <dd>
-                Default <code>"auto"</code> – der Pi sucht beim Start
-                automatisch ein USB-Keyboard mit Buchstaben/Ziffern
-                (= Barcode-Scanner) unter <code>/dev/input/event*</code>
-                und filtert HDMI-Inputs raus.
-                Nur überschreiben, wenn mehrere passende Geräte angeschlossen
-                sind: dann z.B. <code>/dev/input/by-id/usb-…-event-kbd</code>.
+                Default <code>"auto"</code> – der Pi findet damit
+                <em>alle</em> angeschlossenen USB-Tastatur-Reader unter
+                <code>/dev/input/event*</code> (HDMI-Pseudo-Inputs werden
+                gefiltert) und liest sie <strong>parallel</strong> in
+                eigenen Threads. So kann ein Pi gleichzeitig einen QR-
+                und einen RFID-Reader bedienen, ohne Konfig.
+                Nur überschreiben, wenn nur ein bestimmtes Gerät benutzt
+                werden soll – feste Pfade gehen einzeln
+                (<code>/dev/input/event4</code>) oder komma-getrennt
+                (<code>/dev/input/event4,/dev/input/event5</code>).
                 Bei Kameras meist <code>0</code>.
             </dd>
 
@@ -589,14 +602,18 @@ sudo systemctl restart hotsport-access</code></pre>
         <details>
             <summary>Reader liest nichts ein</summary>
             <ul class="checklist">
-                <li><strong>Wedge-Scanner:</strong> <code>ls /dev/input/by-id/</code> –
-                    den passenden Pfad als <em>Reader-Devicepfad</em> ins Dashboard
-                    eintragen.</li>
+                <li><strong>Wedge-Scanner:</strong> Auto-Detect zeigt im Log,
+                    welche Reader gefunden wurden:
+                    <code>journalctl -u hotsport-access -g "Reader-Worker" --no-pager</code>.
+                    Erwartete Ausgabe bei zwei Readern z.B.:
+                    <code>Reader-Worker 'BARCODE SCANNER' startet (path=/dev/input/event4)</code>
+                    + <code>Reader-Worker 'Sycreader RFID' startet (path=/dev/input/event5)</code>.
+                    Wenn ein Gerät fehlt: <code>ls /dev/input/by-id/</code>.</li>
                 <li><strong>Kamera:</strong> <code>v4l2-ctl --list-devices</code>
                     auf dem Pi installieren und richtigen Index setzen.</li>
-                <li><strong>RFID:</strong> SPI in <code>raspi-config</code> aktiv?
-                    User <code>hotsport</code> ist Mitglied der Gruppe
-                    <code>spi</code>?</li>
+                <li><strong>RFID (SPI-Modul, nicht USB):</strong> SPI in
+                    <code>raspi-config</code> aktiv? User <code>hotsport</code>
+                    ist Mitglied der Gruppe <code>spi</code>?</li>
             </ul>
         </details>
         <details>
