@@ -1,8 +1,25 @@
 """LAN-Hub-Erkennung für den Pi-Daemon.
 
-Sucht im lokalen Netz nach dem Hotsport-Hub (GET /health ohne pi_id), bis eine
-erreichbare Instanz gefunden wurde. Kandidaten: Cache, konfigurierte URL,
-mDNS-Namen, dann /24-Subnetze der lokalen Interfaces.
+Sucht im lokalen Netz nach dem Hotsport-Hub (GET /health ohne pi_id), bis
+eine erreichbare Instanz gefunden wurde.
+
+Strategie (in dieser Reihenfolge):
+
+1. **Cache** der zuletzt gefundenen URL.
+2. **Konfigurations-Hint** aus ``config.toml`` (falls gesetzt).
+3. **Default-Gateway** des Pis und benachbarte IPs im selben /24 (typisch:
+   Mac/Workstation steht 1–5 Hosts neben dem Pi).
+4. **„Klassische" Server-Endungen** im selben /24 (.1, .10, .100, .200, …) –
+   die finden den Hub praktisch sofort, weil PCs/Laptops mit DHCP fast
+   immer auf einer dieser Endungen landen.
+5. **mDNS-Namen** (``hub.local``, …) – aber nur, wenn der Resolver sie
+   innerhalb 0,5 s zurückliefert. So kein 15-s-DNS-Hänger auf Pis ohne
+   Avahi.
+6. **Full /24-Sweep** als letzter Fallback.
+
+Phase 1 (Schritt 1–5) und Phase 2 (Schritt 6) laufen separat im
+ThreadPool: erst Phase 1 → wenn nichts gefunden, Phase 2. Dadurch
+findet der Pi den Hub typischerweise in unter einer Sekunde.
 """
 
 from __future__ import annotations
@@ -10,9 +27,11 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 from urllib.parse import urlparse
 
 import httpx
@@ -21,6 +40,15 @@ log = logging.getLogger(__name__)
 
 AUTO_URLS = frozenset({"", "auto", "discover"})
 MDNS_HOSTS = ("hub.local", "hotsport-hub.local", "hotsport-hub")
+
+# Letzte Oktette, auf denen ein Hub sehr wahrscheinlich läuft.
+# Reihenfolge = Probier-Reihenfolge: Server-Range zuerst, dann typische
+# DHCP-Endungen, dann „kosmetische" Endungen wie 254.
+_TYPICAL_LAST_OCTETS = (1, 2, 5, 10, 20, 50, 80, 86, 100, 150, 200, 254)
+
+# Wenn der Pi z.B. 192.168.0.101 hat, ist sein Hub-Gegenstück oft
+# 192.168.0.100 oder 192.168.0.102 (Workstation gleich neben dem Pi).
+_NEIGHBOR_DELTAS = (-1, 1, -2, 2, -5, 5)
 
 
 def is_auto_url(url: str | None) -> bool:
@@ -119,12 +147,109 @@ def _url_for_host(host: str, port: int) -> str:
     return f"http://{host}:{port}"
 
 
-def iter_hub_candidates(
+def _gateway_ips() -> list[str]:
+    """Default-Gateway-IPs aus ``/proc/net/route`` (ohne Subprocess)."""
+    out: list[str] = []
+    try:
+        with open("/proc/net/route", encoding="ascii") as f:
+            next(f, None)  # Header überspringen
+            for line in f:
+                parts = line.split()
+                if len(parts) < 4 or parts[1] != "00000000":
+                    continue
+                hex_gw = parts[2]
+                if len(hex_gw) != 8:
+                    continue
+                try:
+                    ip = ".".join(
+                        str(int(hex_gw[i:i + 2], 16)) for i in (6, 4, 2, 0)
+                    )
+                except ValueError:
+                    continue
+                if ip != "0.0.0.0" and ip not in out:
+                    out.append(ip)
+    except OSError:
+        pass
+    return out
+
+
+def _priority_hosts(local_ips: list[str]) -> list[str]:
+    """Wahrscheinliche Hub-Hosts in den lokalen /24-Subnetzen.
+
+    Reihenfolge: Pi-Nachbarn (±1, ±2, ±5) zuerst, dann typische
+    Server-Endungen. Eigene IP wird ausgelassen.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for ip in local_ips:
+        try:
+            addr = ipaddress.IPv4Address(ip)
+        except ValueError:
+            continue
+        prefix = ".".join(str(b) for b in addr.packed[:3])
+        my_last = addr.packed[3]
+        candidates: list[int] = []
+        for delta in _NEIGHBOR_DELTAS:
+            last = my_last + delta
+            if 1 <= last <= 254 and last != my_last:
+                candidates.append(last)
+        for last in _TYPICAL_LAST_OCTETS:
+            if last != my_last and last not in candidates:
+                candidates.append(last)
+        for last in candidates:
+            host = f"{prefix}.{last}"
+            if host not in seen:
+                seen.add(host)
+                out.append(host)
+    return out
+
+
+def _resolve_many_with_timeout(
+    hosts: Iterable[str],
+    timeout: float = 0.5,
+) -> list[str]:
+    """Löst mehrere Hostnamen *parallel* mit hartem Gesamt-Timeout auf.
+
+    Hintergrund: ``socket.gethostbyname`` ist nicht abbrechbar – ein
+    ``ThreadPoolExecutor.shutdown`` würde auf den hängenden Thread
+    warten. Wir nutzen daher Daemon-Threads + ``Thread.join(timeout)``;
+    nach dem Deadline-Ablauf laufen offene Threads im Hintergrund
+    weiter und sterben mit dem Prozess. Liefert die Hosts, die
+    innerhalb ``timeout`` Sekunden auflösbar waren.
+    """
+    hosts_list = list(hosts)
+    if not hosts_list:
+        return []
+    resolved: dict[str, str] = {}
+
+    def _worker(h: str) -> None:
+        try:
+            resolved[h] = socket.gethostbyname(h)
+        except OSError:
+            pass
+
+    threads: list[tuple[str, threading.Thread]] = []
+    for h in hosts_list:
+        t = threading.Thread(target=_worker, args=(h,), daemon=True)
+        t.start()
+        threads.append((h, t))
+    deadline = time.monotonic() + timeout
+    for _, t in threads:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        t.join(remaining)
+    return [h for h in hosts_list if h in resolved]
+
+
+def _iter_priority_candidates(
     *,
     hint_url: str | None,
     port: int,
     state_dir: Path | None,
+    local_ips: list[str],
 ) -> Iterator[str]:
+    """Phase 1: Cache, Hint, Gateways, Nachbarn, typische Server-IPs, mDNS."""
     if state_dir:
         cached = load_cached_hub(state_dir)
         if cached:
@@ -139,12 +264,78 @@ def iter_hub_candidates(
         except Exception:  # noqa: BLE001
             pass
 
-    for host in MDNS_HOSTS:
+    for gw in _gateway_ips():
+        yield _url_for_host(gw, port)
+
+    for host in _priority_hosts(local_ips):
         yield _url_for_host(host, port)
 
-    for net in _networks_from_ips(_local_ipv4_addresses()):
+    # mDNS nur, wenn DNS innerhalb 0,5 s antwortet – sonst Pi ohne
+    # Avahi würde 5 s × 3 = 15 s warten. Auflösung läuft parallel,
+    # damit ein einzelner hängender Hostname die anderen nicht ausbremst.
+    for h in _resolve_many_with_timeout(MDNS_HOSTS, timeout=0.5):
+        yield _url_for_host(h, port)
+
+
+def _iter_sweep_candidates(
+    *,
+    port: int,
+    local_ips: list[str],
+) -> Iterator[str]:
+    """Phase 2: Full /24-Sweep über alle lokalen Netze."""
+    for net in _networks_from_ips(local_ips):
         for addr in net.hosts():
             yield _url_for_host(str(addr), port)
+
+
+def iter_hub_candidates(
+    *,
+    hint_url: str | None,
+    port: int,
+    state_dir: Path | None,
+) -> Iterator[str]:
+    """Backwards-kompatibler Iterator: Prio-Liste + Sweep, in Reihenfolge."""
+    local_ips = _local_ipv4_addresses()
+    yield from _iter_priority_candidates(
+        hint_url=hint_url, port=port, state_dir=state_dir, local_ips=local_ips,
+    )
+    yield from _iter_sweep_candidates(port=port, local_ips=local_ips)
+
+
+def _race_probe(
+    urls: list[str],
+    probe_timeout: float,
+    max_workers: int,
+) -> str | None:
+    """Parallel probieren, beim ersten Treffer abbrechen."""
+    if not urls:
+        return None
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(urls))) as pool:
+        futures = {
+            pool.submit(is_hotsport_hub, url, probe_timeout): url for url in urls
+        }
+        for fut in as_completed(futures):
+            url = futures[fut]
+            try:
+                if fut.result():
+                    log.info("Hub gefunden: %s", url)
+                    for f in futures:
+                        f.cancel()
+                    return url
+            except Exception as e:  # noqa: BLE001
+                log.debug("Kandidat %s: %s", url, e)
+    return None
+
+
+def _dedupe(urls: Iterator[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in urls:
+        u = u.rstrip("/")
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
 
 
 def discover_hub(
@@ -155,32 +346,38 @@ def discover_hub(
     probe_timeout: float = 0.35,
     max_workers: int = 48,
 ) -> str | None:
-    """Paralleler Scan; erste passende Hub-URL oder None."""
-    seen: set[str] = set()
-    candidates: list[str] = []
-    for url in iter_hub_candidates(hint_url=hint_url, port=port, state_dir=state_dir):
-        u = url.rstrip("/")
-        if u not in seen:
-            seen.add(u)
-            candidates.append(u)
+    """Erst Prio-Kandidaten (~30, sehr schnell), dann Full-Sweep (~250)."""
+    local_ips = _local_ipv4_addresses()
 
-    if not candidates:
+    priority = _dedupe(_iter_priority_candidates(
+        hint_url=hint_url, port=port, state_dir=state_dir, local_ips=local_ips,
+    ))
+    if priority:
+        log.info(
+            "Hub-Suche Phase 1 (Prio): %d Kandidaten auf Port %d …",
+            len(priority), port,
+        )
+        found = _race_probe(priority, probe_timeout, max_workers)
+        if found:
+            if state_dir:
+                save_cached_hub(state_dir, found)
+            return found
+
+    sweep_seen = set(priority)
+    sweep = [
+        u.rstrip("/")
+        for u in _iter_sweep_candidates(port=port, local_ips=local_ips)
+        if u.rstrip("/") not in sweep_seen
+    ]
+    sweep = _dedupe(iter(sweep))
+    if not sweep:
         return None
 
-    log.info("Hub-Suche: %d Kandidaten auf Port %d …", len(candidates), port)
-
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {
-            pool.submit(is_hotsport_hub, url, probe_timeout): url for url in candidates
-        }
-        for fut in as_completed(futures):
-            url = futures[fut]
-            try:
-                if fut.result():
-                    log.info("Hub gefunden: %s", url)
-                    if state_dir:
-                        save_cached_hub(state_dir, url)
-                    return url
-            except Exception as e:  # noqa: BLE001
-                log.debug("Kandidat %s: %s", url, e)
-    return None
+    log.info(
+        "Hub-Suche Phase 2 (Full-Sweep): %d Kandidaten auf Port %d …",
+        len(sweep), port,
+    )
+    found = _race_probe(sweep, probe_timeout, max_workers)
+    if found and state_dir:
+        save_cached_hub(state_dir, found)
+    return found
