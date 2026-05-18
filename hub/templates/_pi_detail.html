@@ -113,6 +113,40 @@
         </div>
     </div>
 
+    <div class="pi-api-test">
+        <h3>API-Test</h3>
+        <p class="muted small">
+            Simuliert den <code>check-access</code>-Call dieses Pis vom Hub aus,
+            mit den Settings aus <code>devices.json</code> (oder DB-Override).
+            Kein Drehkreuz-Impuls, kein <code>gone-in/out</code> – Test wird
+            unter Typ <code>api_test</code> ins Ereignislog eingetragen.
+        </p>
+        <form
+            class="api-test-form inline-form"
+            hx-post="/admin/pi/{{ p['pi_id'] }}/api-test"
+            hx-target="#api-test-result-{{ p['pi_id'] }}"
+            hx-swap="innerHTML"
+            hx-indicator="#api-test-indicator-{{ p['pi_id'] }}"
+        >
+            <label>
+                <span>Test-Code</span>
+                <input
+                    type="text"
+                    name="code"
+                    value="TEST-{{ p['pi_id'] }}"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+            </label>
+            <button type="submit">API-Aufruf testen</button>
+            <span
+                id="api-test-indicator-{{ p['pi_id'] }}"
+                class="htmx-indicator muted small"
+            >testet …</span>
+        </form>
+        <div id="api-test-result-{{ p['pi_id'] }}" class="api-test-target"></div>
+    </div>
+
     <div class="pi-events">
         <h3>Letzte Ereignisse (lokal &amp; übermittelt)</h3>
         {% set events = p.get("events") or [] %}
@@ -152,6 +186,8 @@
                                     <span class="warn">Warte Config</span>
                                 {% elif k == "api_error" %}
                                     <span class="bad">API-Fehler</span>
+                                {% elif k == "api_test" %}
+                                    <span class="muted-badge">API-Test</span>
                                 {% elif k == "hub_lost" %}
                                     <span class="bad">Hub weg</span>
                                 {% elif k == "hub_reconnect" %}

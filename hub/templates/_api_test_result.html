@@ -1,0 +1,44 @@
+{# Ergebnis eines API-Tests; per HTMX in #api-test-result-{pi_id} eingehängt. #}
+<div class="api-test-result">
+    {% if r.ok and r.granted %}
+        <p class="api-test-summary ok">
+            <strong>Zugang erlaubt</strong>
+            <span class="muted small">
+                HTTP {{ r.http_status }} · {{ r.latency_ms }} ms
+            </span>
+        </p>
+    {% elif r.ok and not r.granted %}
+        <p class="api-test-summary bad">
+            <strong>Zugang abgelehnt</strong>
+            <span class="muted small">
+                HTTP {{ r.http_status }} · {{ r.latency_ms }} ms
+            </span>
+        </p>
+    {% else %}
+        <p class="api-test-summary bad">
+            <strong>Fehler</strong>
+            <span class="muted small">
+                {% if r.http_status %}HTTP {{ r.http_status }} ·{% endif %}
+                {{ r.latency_ms }} ms
+            </span>
+        </p>
+    {% endif %}
+
+    <p class="small">{{ r.detail }}</p>
+
+    <details class="api-test-detail">
+        <summary class="muted small">Request-/Response-Details</summary>
+        <dl class="kv small">
+            <dt>Code</dt><dd><code>{{ code or "—" }}</code></dd>
+            <dt>URL</dt><dd><code>{{ r.request_url or "—" }}</code></dd>
+            <dt>Body</dt><dd><code>{{ r.request_body | tojson }}</code></dd>
+            {% if r.response_excerpt %}
+            <dt>Antwort (gekürzt)</dt>
+            <dd><pre class="muted small">{{ r.response_excerpt }}</pre></dd>
+            {% endif %}
+        </dl>
+        <p class="muted small">
+            Test wurde im Pi-Ereignislog gespeichert (Typ <code>api_test</code>).
+        </p>
+    </details>
+</div>

@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import config_view, db, devices, releases
+from . import api_test, config_view, db, devices, releases
 from .auth import require_dashboard, require_pi_token
 from .config import HubConfig, load
 
@@ -399,6 +399,57 @@ def _register_routes(app: FastAPI) -> None:
         return request.app.state.templates.TemplateResponse(
             "_scans.html",
             {"request": request, "scans": scans},
+        )
+
+    @app.post("/admin/pi/{pi_id}/api-test", response_class=HTMLResponse)
+    async def api_test_for_pi(
+        request: Request,
+        actor: Annotated[str, Depends(require_dashboard)],
+        pi_id: str,
+        code: Annotated[str, Form()] = "",
+    ) -> HTMLResponse:
+        """Simuliert vom Hub aus den `check-access`-Call dieses Pis.
+
+        Verwendet die effektive Live-Konfiguration des Pis (devices.json +
+        DB-Overrides), führt den HTTP-Call gegen die Binarytec-API und
+        gibt das Ergebnis als HTML-Fragment für HTMX zurück. Das Ereignis
+        wird unter ``kind='api_test'`` im Pi-Log gespeichert, damit der
+        User später nachvollziehen kann, dass das ein Test war.
+        """
+        live = config_view.build_for(request.app.state.db, pi_id)
+        api_cfg = live.get("api") or {}
+        pi_cfg = live.get("pi") or {}
+
+        result = api_test.run_api_test(
+            base_url=str(api_cfg.get("base_url") or ""),
+            bearer_token=str(api_cfg.get("bearer_token") or ""),
+            interface_id=str(pi_cfg.get("interface_id") or ""),
+            code=code,
+            verify_tls=bool(api_cfg.get("verify_tls", False)),
+            connect_timeout_s=float(api_cfg.get("connect_timeout_seconds") or 1.0),
+            request_timeout_s=float(api_cfg.get("request_timeout_seconds") or 2.0),
+        )
+
+        # Test im Pi-Event-Log persistieren, damit es im "Letzte Ereignisse"-
+        # Bereich auftaucht und sofort als Test (nicht als echter Scan)
+        # erkennbar ist.
+        reason = (
+            f"by={actor} status={result.http_status} "
+            f"latency={result.latency_ms}ms detail={result.detail}"
+        )
+        db.insert_scan(
+            request.app.state.db,
+            pi_id=pi_id,
+            kind="api_test",
+            code=code or None,
+            granted=result.granted,
+            reason=reason,
+            scanned_at=int(time.time()),
+        )
+
+        return request.app.state.templates.TemplateResponse(
+            "_api_test_result.html",
+            {"request": request, "pi_id": pi_id, "code": code, "r": result},
         )
 
     @app.post("/admin/set-version")

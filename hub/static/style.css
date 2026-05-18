@@ -453,7 +453,46 @@ button.toggle:hover { background: var(--surface-alt); color: var(--brand-red); b
     margin-top: 0.25rem;
 }
 
-/* ---------------- Pi-Detail ---------------- */
+/* ---------------- Pi-Detail / API-Test ---------------- */
+
+.pi-api-test,
+.pi-events {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--border);
+}
+
+.api-test-form { align-items: flex-end; }
+.api-test-form label { min-width: 220px; }
+
+.api-test-target { margin-top: 0.6rem; }
+.api-test-target:empty { display: none; }
+
+.api-test-result {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.85rem;
+    background: var(--surface-alt);
+}
+
+.api-test-summary { margin: 0 0 0.3rem; font-size: 0.95rem; }
+.api-test-summary.ok { color: var(--brand-green, #1f7a3a); }
+.api-test-summary.bad { color: var(--brand-red); }
+
+.api-test-detail dl.kv pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+    background: transparent;
+}
+
+.htmx-indicator {
+    opacity: 0;
+    transition: opacity 0.2s ease-in;
+    margin-left: 0.5rem;
+}
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator { opacity: 1; }
 
 .pi-detail {
     background: var(--surface-detail);
