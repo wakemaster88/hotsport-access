@@ -193,12 +193,43 @@ fi
 # ---------- Pakete installieren ----------
 echo
 echo "==> Pakete installieren"
+
+# Pi OS Lite hat oft 'packagekit' (oder 'unattended-upgrades') aktiv, das den
+# dpkg-Lock im Hintergrund hält. Wir stoppen sie kurz – falls vorhanden – und
+# starten sie nach dem Install wieder. Wenn die Units gar nicht existieren,
+# scheitern die Befehle still und sind ein No-Op.
+PAUSED_UNITS=()
+for unit in packagekit unattended-upgrades apt-daily.service apt-daily-upgrade.service; do
+    if systemctl is-active --quiet "${unit}" 2>/dev/null; then
+        echo "    Pause: ${unit}"
+        systemctl stop "${unit}" 2>/dev/null || true
+        PAUSED_UNITS+=("${unit}")
+    fi
+done
+
+# Falls trotzdem noch ein dpkg-Lock gehalten wird (z.B. apt-get up running),
+# warten wir bis zu 60 s darauf, dass er frei wird.
+for i in {1..30}; do
+    if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+       && ! fuser /var/lib/apt/lists/lock     >/dev/null 2>&1; then
+        break
+    fi
+    echo "    Warte auf dpkg-Lock... (${i}/30)"
+    sleep 2
+done
+
 apt-get update
 apt-get install -y python3-venv python3-pip rsync python3-rpi.gpio
 case "${MODE}" in
     qr_camera)    apt-get install -y python3-opencv ;;
     rfid_mfrc522) apt-get install -y python3-spidev ;;
 esac
+
+# Pausierte Hintergrunddienste wieder anwerfen
+for unit in "${PAUSED_UNITS[@]}"; do
+    echo "    Reaktiviere: ${unit}"
+    systemctl start "${unit}" 2>/dev/null || true
+done
 
 # ---------- Verzeichnisse + Bootstrap-Release ----------
 echo "==> Verzeichnisse anlegen"
