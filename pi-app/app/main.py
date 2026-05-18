@@ -174,14 +174,18 @@ def main() -> int:
 
     # Watchdog-Heartbeat unabhängig vom Reader-Mainloop – sonst killt
     # systemd den Daemon nach 60 s, wenn niemand scannt (Reader hängt
-    # blockierend in read_loop()). Solange der Python-Prozess GIL und
-    # Thread-Scheduler bedient, lebt er aus systemd-Sicht.
+    # blockierend in read_loop()). Aus dem gleichen Grund aktualisieren
+    # wir auch healthy["last_loop"]: das beweist „Daemon lebt", egal ob
+    # gerade gescannt wird – sonst meldet der Hub-Heartbeat den Pi als
+    # `healthy=false` und das Dashboard zeigt 'unhealthy', obwohl der
+    # Pi nur idle ist.
     def _watchdog_loop() -> None:
         while not stop_flag["stop"]:
             try:
                 sdnotify.watchdog()
             except Exception:  # noqa: BLE001
                 pass
+            healthy["last_loop"] = time.time()
             time.sleep(10.0)
 
     threading.Thread(
