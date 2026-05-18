@@ -59,10 +59,43 @@ class State:
         self._last_scan_granted: bool | None = None
 
     def _migrate_existing_schema(self) -> None:
-        cols = {row["name"] for row in self._conn.execute("PRAGMA table_info(scans)")}
+        info = list(self._conn.execute("PRAGMA table_info(scans)"))
+        cols = {row["name"]: row for row in info}
         if "kind" not in cols:
             self._conn.execute(
                 "ALTER TABLE scans ADD COLUMN kind TEXT NOT NULL DEFAULT 'scan'"
+            )
+            info = list(self._conn.execute("PRAGMA table_info(scans)"))
+            cols = {row["name"]: row for row in info}
+
+        # Ältere DBs hatten code/granted als NOT NULL – passt nicht zu
+        # Service-Events. SQLite kann ALTER COLUMN nicht, also Tabelle
+        # umbenennen, neu anlegen, Daten zurückkopieren.
+        needs_relax = any(
+            col in cols and cols[col]["notnull"] for col in ("code", "granted")
+        )
+        if needs_relax:
+            self._conn.executescript(
+                """
+                ALTER TABLE scans RENAME TO scans__old;
+                CREATE TABLE scans (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kind        TEXT NOT NULL DEFAULT 'scan',
+                    code        TEXT,
+                    granted     INTEGER,
+                    reason      TEXT,
+                    scanned_at  INTEGER NOT NULL,
+                    pushed      INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT INTO scans (id, kind, code, granted, reason, scanned_at, pushed)
+                    SELECT id,
+                           COALESCE(kind, 'scan'),
+                           code, granted, reason, scanned_at, pushed
+                    FROM scans__old;
+                DROP TABLE scans__old;
+                CREATE INDEX IF NOT EXISTS idx_scans_pushed ON scans(pushed, scanned_at);
+                CREATE INDEX IF NOT EXISTS idx_scans_at     ON scans(scanned_at DESC);
+                """
             )
 
     @contextmanager
