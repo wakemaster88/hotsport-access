@@ -21,7 +21,11 @@ health_bind_host = "127.0.0.1"
 health_bind_port = 8765
 
 [hub]
-base_url                       = "http://hub.local:8000"
+# "auto" oder leer + discover = true → Pi scannt das LAN bis der Hub gefunden ist.
+base_url                       = "auto"
+discover                       = true
+hub_port                       = 8000
+discover_interval_seconds      = 15.0
 pi_token                       = "BITTE-EINTRAGEN"   # = HOTSPORT_HUB_PI_TOKEN auf dem Hub
 heartbeat_interval_seconds     = 5.0
 update_check_interval_seconds  = 30.0

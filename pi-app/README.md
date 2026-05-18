@@ -37,7 +37,9 @@ location  = "hotsport"
 state_dir = "/var/lib/hotsport-access"
 
 [hub]
-base_url = "http://hub.local:8000"
+base_url = "auto"              # oder feste URL; "auto" = LAN-Suche
+discover = true                # scannt periodisch, bis der Hub erreichbar ist
+hub_port = 8000
 pi_token = "BITTE-EINTRAGEN"
 heartbeat_interval_seconds = 5.0
 update_check_interval_seconds = 30.0

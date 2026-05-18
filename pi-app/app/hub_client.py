@@ -5,9 +5,9 @@ Aufgaben:
 - Push gepufferter Scans an den Hub (`/api/scan`).
 - Pull der Live-Config bei Fingerprint-Wechsel (`/api/config/{pi_id}`).
 
-Wenn der Hub kurz nicht erreichbar ist, ist das egal: der Daemon läuft mit
-seiner zuletzt gesehenen Config einfach weiter und versucht es beim nächsten
-Tick erneut.
+Wenn der Hub kurz nicht erreichbar ist, läuft der Daemon mit der zuletzt
+gesehenen Config weiter. Mit ``discover = true`` (oder ``base_url = "auto"``)
+wird das LAN periodisch nach dem Hub durchsucht, bis er erreichbar ist.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import Any, Callable
 import httpx
 
 from . import config as cfg_mod
+from . import hub_discovery
 from . import sysinfo
 from .state import State
 from .version import current_version
@@ -41,37 +42,127 @@ class HubClient(threading.Thread):
         self._on_config_change = on_config_change
         self._stop = threading.Event()
         self._client: httpx.Client | None = None
+        self._active_url: str | None = None
         self._last_fingerprint: str | None = None
         self._tick_count = 0
+        self._connect_failures = 0
+        self._discover = hub_discovery.should_discover(
+            boot.hub.base_url, boot.hub.discover
+        )
 
     def stop(self) -> None:
         self._stop.set()
 
     def run(self) -> None:
-        if not self._boot.hub.base_url:
+        hub = self._boot.hub
+        if not self._hub_enabled():
             log.warning("Kein Hub konfiguriert – Heartbeat deaktiviert.")
             return
-        self._client = httpx.Client(
-            base_url=self._boot.hub.base_url.rstrip("/"),
-            timeout=httpx.Timeout(connect=1.5, read=4.0, write=4.0, pool=1.5),
-            headers=(
-                {"Authorization": f"Bearer {self._boot.hub.pi_token}"}
-                if self._boot.hub.pi_token
-                else {}
-            ),
-        )
+
+        if self._discover:
+            log.info(
+                "Hub-Erkennung aktiv (Port %d, Intervall %.0fs).",
+                hub.hub_port,
+                hub.discover_interval_seconds,
+            )
+        elif not hub.base_url:
+            log.warning("hub.base_url fehlt – Heartbeat deaktiviert.")
+            return
+
         while not self._stop.is_set():
+            if not self._ensure_client():
+                wait = (
+                    hub.discover_interval_seconds
+                    if self._discover
+                    else hub.heartbeat_interval_seconds
+                )
+                self._stop.wait(wait)
+                continue
             try:
                 self._tick()
+                self._connect_failures = 0
+            except httpx.HTTPError as e:
+                self._connect_failures += 1
+                log.warning("Hub-Tick fehlgeschlagen: %s", e)
+                if self._discover and self._connect_failures >= 2:
+                    log.info("Hub nicht erreichbar – starte erneute LAN-Suche …")
+                    self._reset_client()
             except Exception as e:  # noqa: BLE001
                 log.warning("Hub-Tick fehlgeschlagen: %s", e)
-            self._stop.wait(self._boot.hub.heartbeat_interval_seconds)
-        try:
-            self._client.close()
-        except Exception:  # noqa: BLE001
-            pass
+            self._stop.wait(hub.heartbeat_interval_seconds)
+
+        self._reset_client()
 
     # ---------- intern ----------
+
+    def _hub_enabled(self) -> bool:
+        hub = self._boot.hub
+        if hub.pi_token:
+            return True
+        if hub.base_url and not hub_discovery.is_auto_url(hub.base_url):
+            return True
+        if self._discover:
+            return True
+        return False
+
+    def _ensure_client(self) -> bool:
+        if self._client is not None and self._active_url:
+            return True
+
+        url = self._resolve_hub_url()
+        if not url:
+            if self._discover:
+                log.info(
+                    "Hub noch nicht gefunden – erneuter Scan in %.0fs …",
+                    self._boot.hub.discover_interval_seconds,
+                )
+            return False
+
+        self._active_url = url
+        headers = (
+            {"Authorization": f"Bearer {self._boot.hub.pi_token}"}
+            if self._boot.hub.pi_token
+            else {}
+        )
+        self._client = httpx.Client(
+            base_url=url,
+            timeout=httpx.Timeout(connect=1.5, read=4.0, write=4.0, pool=1.5),
+            headers=headers,
+        )
+        log.info("Hub-Client verbunden: %s", url)
+        return True
+
+    def _resolve_hub_url(self) -> str | None:
+        hub = self._boot.hub
+        hint = hub.base_url or None
+
+        if self._discover:
+            found = hub_discovery.discover_hub(
+                hint_url=hint,
+                port=hub.hub_port,
+                state_dir=self._boot.state_dir,
+            )
+            if found:
+                return found
+            if hint and not hub_discovery.is_auto_url(hint):
+                if hub_discovery.is_hotsport_hub(hint.rstrip("/")):
+                    hub_discovery.save_cached_hub(self._boot.state_dir, hint)
+                    return hint.rstrip("/")
+            return None
+
+        if hint and not hub_discovery.is_auto_url(hint):
+            return hint.rstrip("/")
+        return None
+
+    def _reset_client(self) -> None:
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._client = None
+        self._active_url = None
+        self._connect_failures = 0
 
     def _tick(self) -> None:
         assert self._client is not None
@@ -87,6 +178,10 @@ class HubClient(threading.Thread):
         resp = self._client.post("/api/heartbeat", json=payload)
         if resp.status_code >= 400:
             log.warning("Heartbeat HTTP %s: %s", resp.status_code, resp.text[:200])
+            if resp.status_code in (401, 403):
+                raise httpx.HTTPStatusError(
+                    "auth failed", request=resp.request, response=resp
+                )
             return
         body = resp.json() if resp.content else {}
         fp = body.get("config_fingerprint")
@@ -94,7 +189,6 @@ class HubClient(threading.Thread):
             self._refresh_config(fp)
         self._flush_pending_scans()
 
-        # Einmal pro Stunde alte gepushte Scans aufräumen
         self._tick_count += 1
         interval = self._boot.hub.heartbeat_interval_seconds
         if interval > 0 and self._tick_count % max(1, int(3600 / interval)) == 0:
@@ -119,11 +213,6 @@ class HubClient(threading.Thread):
                 expected_fp,
                 live.fingerprint,
             )
-        # Unvollständige Hub-Configs ignorieren – sonst würden wir eine
-        # funktionierende Inline/Cache-Config kaputtmachen, nur weil der Hub
-        # z.B. keinen Bearer-Token-Override gesetzt hat. Wir merken uns den
-        # Fingerprint trotzdem, damit wir nicht bei jedem Heartbeat erneut
-        # pullen, bis der Hub eine vollständige Antwort liefert.
         if not live.complete:
             log.info(
                 "Hub liefert unvollständige Config (fp=%s) – ignoriert, lokale "
@@ -137,21 +226,16 @@ class HubClient(threading.Thread):
         self._on_config_change(live)
 
     def _flush_pending_scans(self) -> None:
-        """Pusht alle ungepushten Ereignisse (Scans + Service-Events) an den Hub."""
         assert self._client is not None
         rows = self._state.unpushed(limit=100)
         ok_ids: list[int] = []
         for row in rows:
-            # Schema-Migration: ältere Pi-Versionen kennen kein `kind` – als
-            # "scan" interpretieren, damit der Hub-Endpoint zufrieden ist.
             try:
                 kind = row["kind"]
             except (IndexError, KeyError):
                 kind = "scan"
             granted_raw = row["granted"]
-            granted = (
-                bool(granted_raw) if granted_raw is not None else None
-            )
+            granted = bool(granted_raw) if granted_raw is not None else None
             try:
                 resp = self._client.post(
                     "/api/scan",
@@ -175,4 +259,3 @@ class HubClient(threading.Thread):
                 log.warning("Event-Push fehlgeschlagen: %s", e)
                 break
         self._state.mark_pushed(ok_ids)
-

@@ -27,6 +27,7 @@ from . import sdnotify
 from .api import ApiError, BinarytecClient
 from .gpio import GpioController
 from .health import start_health_server
+from . import hub_discovery
 from .hub_client import HubClient
 from .readers import factory as reader_factory
 from .state import State
@@ -51,9 +52,12 @@ def main() -> int:
     args = parser.parse_args()
 
     boot = cfg_mod.load_bootstrap(args.config)
+    hub_desc = boot.hub.base_url or "(keiner)"
+    if hub_discovery.should_discover(boot.hub.base_url, boot.hub.discover):
+        hub_desc = f"auto-discovery (Port {boot.hub.hub_port})"
     log.info(
         "Boot: pi=%s name=%s location=%s version=%s hub=%s",
-        boot.pi_id, boot.name, boot.location, current_version(), boot.hub.base_url,
+        boot.pi_id, boot.name, boot.location, current_version(), hub_desc,
     )
     if args.print_config:
         print(boot)

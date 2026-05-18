@@ -121,7 +121,7 @@ IFS=$'\t' read -r \
     PI_NAME PI_LOC MODE INOUT INTERFACE \
     RELAY_PIN RELAY_PULSE BUZZER_PIN \
     READER_DEVICE READER_CAMIDX \
-    HUB_URL HUB_TOKEN_FROM_JSON \
+    HUB_URL HUB_TOKEN_FROM_JSON HUB_DISCOVER HUB_PORT HUB_DISCOVER_INTERVAL \
     API_BASE_URL API_TOKEN_FROM_JSON API_VERIFY_TLS API_CONNECT_TIMEOUT API_REQUEST_TIMEOUT \
     < <(
     python3 - "${DEVICES_JSON}" "${PI_ID}" <<'PY'
@@ -169,6 +169,9 @@ print("\t".join([
     esc(pick("reader_camera_index", default=0)),
     esc(hub.get("base_url", "")),
     esc(hub.get("pi_token", "")),
+    esc(hub.get("discover", False)),
+    esc(hub.get("hub_port", 8000)),
+    esc(hub.get("discover_interval_seconds", 15.0)),
     esc(api.get("base_url", "")),
     esc(api.get("bearer_token", "")),
     esc(api.get("verify_tls", False)),
@@ -190,6 +193,9 @@ fi
 # Defaults für leere Felder ("-" -> sinnvoller Standardwert)
 [[ "${HUB_URL}"              == "-" ]] && HUB_URL=""
 [[ "${HUB_TOKEN_FROM_JSON}"  == "-" ]] && HUB_TOKEN_FROM_JSON=""
+[[ "${HUB_DISCOVER}"         == "-" ]] && HUB_DISCOVER="false"
+[[ "${HUB_PORT}"             == "-" ]] && HUB_PORT="8000"
+[[ "${HUB_DISCOVER_INTERVAL}" == "-" ]] && HUB_DISCOVER_INTERVAL="15.0"
 [[ "${API_TOKEN_FROM_JSON}"  == "-" ]] && API_TOKEN_FROM_JSON=""
 [[ "${INTERFACE}"            == "-" ]] && INTERFACE=""
 [[ "${API_VERIFY_TLS}"       == "-" ]] && API_VERIFY_TLS="false"
@@ -285,15 +291,15 @@ echo "  Interface-ID: ${INTERFACE}"
 echo "  Relais/Buzzer: GPIO${RELAY_PIN} (puls ${RELAY_PULSE}s) / GPIO${BUZZER_PIN}"
 echo "  API:          ${API_BASE_URL} (verify_tls=${API_VERIFY_TLS})"
 echo "  API-Token:    ********** (Quelle: ${API_TOKEN_SOURCE})"
-if [[ -n "${HUB_URL}" ]]; then
-    echo "  Hub:          ${HUB_URL}"
-    if [[ -n "${HUB_TOKEN}" ]]; then
-        echo "  Hub-Token:    ********** (Quelle: ${HUB_TOKEN_SOURCE})"
+if [[ -n "${HUB_TOKEN}" ]]; then
+    if [[ "${HUB_DISCOVER}" == "true" ]] || [[ "${HUB_URL}" == "auto" ]] || [[ "${HUB_URL}" == "discover" ]] || [[ -z "${HUB_URL}" ]]; then
+        echo "  Hub:          automatische LAN-Suche (Port ${HUB_PORT})"
     else
-        echo "  Hub-Token:    (leer – kein Heartbeat, Standalone-Modus)"
+        echo "  Hub:          ${HUB_URL}"
     fi
+    echo "  Hub-Token:    ********** (Quelle: ${HUB_TOKEN_SOURCE})"
 else
-    echo "  Hub:          (kein Hub konfiguriert – Standalone-Modus)"
+    echo "  Hub:          (kein Hub-Token – Standalone-Modus)"
 fi
 echo
 
@@ -393,13 +399,20 @@ if [[ -f "${LIVE_CACHE}" ]]; then
     echo "    Live-Config-Cache geleert (alte Sicherung als .bak.*)."
 fi
 
-# Hub-Section nur schreiben, wenn URL+Token gesetzt sind (sonst Standalone).
+# Hub-Section schreiben, sobald ein Pi-Token gesetzt ist (URL optional bei discover).
 HUB_BLOCK=""
-if [[ -n "${HUB_URL}" ]] && [[ -n "${HUB_TOKEN}" ]]; then
+if [[ -n "${HUB_TOKEN}" ]]; then
+    HUB_BASE_TOML="${HUB_URL}"
+  if [[ -z "${HUB_BASE_TOML}" ]] || [[ "${HUB_BASE_TOML}" == "auto" ]] || [[ "${HUB_BASE_TOML}" == "discover" ]]; then
+        HUB_BASE_TOML="auto"
+    fi
     HUB_BLOCK=$(cat <<EOF
 
 [hub]
-base_url                      = "${HUB_URL}"
+base_url                      = "${HUB_BASE_TOML}"
+discover                      = ${HUB_DISCOVER}
+hub_port                      = ${HUB_PORT}
+discover_interval_seconds     = ${HUB_DISCOVER_INTERVAL}
 pi_token                      = "${HUB_TOKEN}"
 heartbeat_interval_seconds    = 5.0
 update_check_interval_seconds = 30.0

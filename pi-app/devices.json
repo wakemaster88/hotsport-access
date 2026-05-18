@@ -16,7 +16,10 @@
   ],
 
   "hub": {
-    "base_url": "http://192.168.0.86:8765",
+    "base_url": "auto",
+    "discover": true,
+    "hub_port": 8000,
+    "discover_interval_seconds": 15.0,
     "pi_token": ""
   },
 

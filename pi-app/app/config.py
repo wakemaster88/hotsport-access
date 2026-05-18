@@ -53,6 +53,9 @@ DEFAULT_CONFIG_PATH = Path(
 class HubBootstrap:
     base_url: str = ""
     pi_token: str = ""
+    discover: bool = False
+    hub_port: int = 8000
+    discover_interval_seconds: float = 15.0
     heartbeat_interval_seconds: float = 5.0
     update_check_interval_seconds: float = 30.0
 
@@ -66,6 +69,23 @@ class Bootstrap:
     health_bind_host: str
     health_bind_port: int
     hub: HubBootstrap = field(default_factory=HubBootstrap)
+
+
+def _parse_hub(raw: dict[str, Any]) -> HubBootstrap:
+    discover = raw.get("discover", False)
+    if isinstance(discover, str):
+        discover = discover.strip().lower() in ("true", "1", "yes")
+    return HubBootstrap(
+        base_url=str(raw.get("base_url") or "").strip(),
+        pi_token=str(raw.get("pi_token") or "").strip(),
+        discover=bool(discover),
+        hub_port=_to_int(raw.get("hub_port"), 8000),
+        discover_interval_seconds=_to_float(raw.get("discover_interval_seconds"), 15.0),
+        heartbeat_interval_seconds=_to_float(raw.get("heartbeat_interval_seconds"), 5.0),
+        update_check_interval_seconds=_to_float(
+            raw.get("update_check_interval_seconds"), 30.0
+        ),
+    )
 
 
 def load_bootstrap(path: Path | None = None) -> Bootstrap:
@@ -82,7 +102,7 @@ def load_bootstrap(path: Path | None = None) -> Bootstrap:
         state_dir=Path(raw.get("state_dir", "/var/lib/hotsport-access")),
         health_bind_host=raw.get("health_bind_host", "127.0.0.1"),
         health_bind_port=int(raw.get("health_bind_port", 8765)),
-        hub=HubBootstrap(**(raw.get("hub") or {})),
+        hub=_parse_hub(raw.get("hub") or {}),
     )
 
 
