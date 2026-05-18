@@ -252,6 +252,19 @@ sudo bash scripts/install.sh -y hotsport-pi-04 BINARYTEC-TOKEN ""</code></pre>
             gesichert und neu geschrieben. venv und Daten bleiben erhalten.
         </p>
         <p class="muted small">
+            <strong>Auto-Update:</strong> nach Schritt 3 läuft auf dem Pi der
+            <code>hotsport-updater</code>-Service. Er pollt alle 5&nbsp;min
+            <code>origin/main</code> auf GitHub. Findet er einen neuen Commit,
+            macht er <code>git reset --hard</code>, ruft <code>install.sh -y</code>
+            auf und prüft danach <code>/health</code>. Schlägt der Health-Check
+            fehl, springt er per <code>git reset</code> auf den letzten guten
+            Commit zurück, ruft <code>install.sh</code> erneut und merkt sich
+            den kaputten SHA in <code>/var/lib/hotsport-access/updater/bad_commits.txt</code>,
+            damit das Drehkreuz nicht in einer Update-Schleife stecken bleibt.
+            Update-Events (<em>Update OK / Update-Fehler / Rollback</em>) erscheinen
+            im Pi-Detail-Log.
+        </p>
+        <p class="muted small">
             Bei aktiviertem Hub-Token taucht der Pi innerhalb ~5&nbsp;Sekunden
             unten im Dashboard auf. Routine-Updates verteilt der
             <code>hotsport-updater</code>-Service automatisch über den Hub.

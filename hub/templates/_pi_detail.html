@@ -188,6 +188,12 @@
                                     <span class="bad">API-Fehler</span>
                                 {% elif k == "api_test" %}
                                     <span class="muted-badge">API-Test</span>
+                                {% elif k == "update_applied" %}
+                                    <span class="ok">Update OK</span>
+                                {% elif k == "update_failed" %}
+                                    <span class="bad">Update-Fehler</span>
+                                {% elif k == "update_rolled_back" %}
+                                    <span class="warn">Rollback</span>
                                 {% elif k == "hub_lost" %}
                                     <span class="bad">Hub weg</span>
                                 {% elif k == "hub_reconnect" %}

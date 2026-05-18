@@ -407,6 +407,24 @@ EOF
 )
 fi
 
+# Git-Repo-Root für Auto-Updater bestimmen (REPO_DIR ist .../pi-app).
+GIT_REPO_DIR="$(cd "${REPO_DIR}/.." && pwd)"
+UPDATER_BLOCK=""
+if [[ -d "${GIT_REPO_DIR}/.git" ]]; then
+    UPDATER_BLOCK=$(cat <<EOF
+
+[updater]
+enabled                       = true
+git_repo                      = "${GIT_REPO_DIR}"
+branch                        = "main"
+install_script                = "${REPO_DIR}/scripts/install.sh"
+check_interval_seconds        = 300.0
+health_check_delay_seconds    = 30.0
+health_check_timeout_seconds  = 60.0
+EOF
+)
+fi
+
 cat > "${CONFIG_FILE}" <<EOF
 # /etc/hotsport-access/config.toml
 # Automatisch generiert von install.sh aus pi-app/devices.json.
@@ -440,6 +458,7 @@ buzzer_pin          = ${BUZZER_PIN}
 mode         = "${MODE}"
 device_path  = "${READER_DEVICE}"
 camera_index = ${READER_CAMIDX}
+${UPDATER_BLOCK}
 EOF
 chmod 0640 "${CONFIG_FILE}"
 
@@ -461,7 +480,11 @@ fi
 
 echo "==> Service starten"
 systemctl restart hotsport-access.service
-systemctl restart hotsport-updater.service
+if [[ "${HOTSPORT_NO_UPDATER_RESTART:-0}" == "1" ]]; then
+    echo "    (hotsport-updater bleibt – wird vom laufenden Updater fortgeführt)"
+else
+    systemctl restart hotsport-updater.service
+fi
 
 echo
 echo "================================================="
