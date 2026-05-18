@@ -154,10 +154,16 @@ def main() -> int:
     sdnotify.ready()
     sdnotify.status("running")
 
+    state.record_event(
+        kind="service_start",
+        reason=f"version={current_version()} hub={'an' if boot.hub.base_url else 'aus'}",
+    )
+
     # Wenn wir noch keine vollständige Config haben, idle bis sie eintrifft.
     if not (live and live.complete):
         sdnotify.status("waiting for config")
         log.info("Warte auf vollständige Konfiguration vom Hub …")
+        state.record_event(kind="waiting_config", reason="no live config available")
         try:
             while not stop_flag["stop"] and not (
                 config_changed.wait(timeout=2.0) and new_config_holder.get("live") and new_config_holder["live"].complete
@@ -187,11 +193,16 @@ def main() -> int:
             live.api.interface_id, live.reader.mode,
             live.gpio.relay_pin, live.gpio.buzzer_pin,
         )
+        state.record_event(
+            kind="config_applied",
+            reason=f"iface={live.api.interface_id} mode={live.reader.mode} fp={live.fingerprint[:12]}",
+        )
     else:
         sdnotify.status("disabled (admin) – Scans loggen, aber kein API-Call/Relais")
         log.warning(
             "Pi ist administrativ DEAKTIVIERT (vom Hub). Scans werden nur geloggt."
         )
+        state.record_event(kind="config_applied", reason="pi disabled by admin")
 
     try:
         for scan in reader_iter:
@@ -200,6 +211,7 @@ def main() -> int:
             if config_changed.is_set():
                 # Funktional relevante Konfig hat sich geändert → sauber neu starten.
                 log.info("Config-Änderung erkannt – beende Prozess für Neustart.")
+                state.record_event(kind="config_change", reason="restart for new config")
                 gpio.beep_config_applied()
                 break
             healthy["last_loop"] = time.time()
@@ -211,6 +223,7 @@ def main() -> int:
                 state.record_scan(code=scan, granted=False, reason=f"error: {e}")
                 gpio.beep_error()
     finally:
+        state.record_event(kind="service_stop", reason="shutting down")
         api.close()
         _shutdown(hub, gpio, health_server)
     return 0

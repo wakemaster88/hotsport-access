@@ -236,14 +236,20 @@ def _register_routes(app: FastAPI) -> None:
     @app.post("/api/scan", dependencies=[Depends(require_pi_token)])
     async def report_scan(payload: dict, request: Request) -> dict:
         pi_id = str(payload.get("pi_id") or "").strip()
-        code = str(payload.get("code") or "")
-        if not pi_id or not code:
-            raise HTTPException(status_code=400, detail="pi_id/code fehlt")
+        kind = str(payload.get("kind") or "scan").strip() or "scan"
+        if not pi_id:
+            raise HTTPException(status_code=400, detail="pi_id fehlt")
+        code = payload.get("code")
+        if kind == "scan" and not code:
+            raise HTTPException(status_code=400, detail="code fehlt für scan")
+        granted_raw = payload.get("granted")
+        granted = None if granted_raw is None else bool(granted_raw)
         db.insert_scan(
             request.app.state.db,
             pi_id=pi_id,
-            code=code,
-            granted=bool(payload.get("granted")),
+            kind=kind,
+            code=str(code) if code else None,
+            granted=granted,
             reason=payload.get("reason"),
             scanned_at=int(payload.get("at") or time.time()),
         )
@@ -513,10 +519,16 @@ def _register_routes(app: FastAPI) -> None:
         }
 
     def _merged_pis(conn) -> list[dict]:
-        """Pi-Liste fürs Dashboard: Solldaten aus devices.json + Live-Daten aus DB."""
+        """Pi-Liste fürs Dashboard: Solldaten aus devices.json + Live-Daten +
+        die letzten 100 Ereignisse pro Pi (Scans + Service-Events)."""
         dev_list = devices.list_devices()
         db_rows = [dict(row) for row in db.list_pis(conn)]
-        return devices.merge_for_dashboard(dev_list, db_rows)
+        merged = devices.merge_for_dashboard(dev_list, db_rows)
+        for p in merged:
+            p["events"] = [
+                dict(row) for row in db.recent_events(conn, pi_id=p["pi_id"], limit=100)
+            ]
+        return merged
 
     def _api_settings_view(conn) -> dict[str, str]:
         """API-Settings für die Dashboard-Anzeige.

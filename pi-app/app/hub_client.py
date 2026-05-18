@@ -137,17 +137,29 @@ class HubClient(threading.Thread):
         self._on_config_change(live)
 
     def _flush_pending_scans(self) -> None:
+        """Pusht alle ungepushten Ereignisse (Scans + Service-Events) an den Hub."""
         assert self._client is not None
         rows = self._state.unpushed(limit=100)
         ok_ids: list[int] = []
         for row in rows:
+            # Schema-Migration: ältere Pi-Versionen kennen kein `kind` – als
+            # "scan" interpretieren, damit der Hub-Endpoint zufrieden ist.
+            try:
+                kind = row["kind"]
+            except (IndexError, KeyError):
+                kind = "scan"
+            granted_raw = row["granted"]
+            granted = (
+                bool(granted_raw) if granted_raw is not None else None
+            )
             try:
                 resp = self._client.post(
                     "/api/scan",
                     json={
                         "pi_id": self._boot.pi_id,
+                        "kind": kind or "scan",
                         "code": row["code"],
-                        "granted": bool(row["granted"]),
+                        "granted": granted,
                         "reason": row["reason"],
                         "at": row["scanned_at"],
                     },
@@ -156,11 +168,11 @@ class HubClient(threading.Thread):
                     ok_ids.append(int(row["id"]))
                 else:
                     log.warning(
-                        "Scan-Push %s abgelehnt: %s", row["id"], resp.status_code
+                        "Event-Push %s abgelehnt: %s", row["id"], resp.status_code
                     )
                     break
             except httpx.HTTPError as e:
-                log.warning("Scan-Push fehlgeschlagen: %s", e)
+                log.warning("Event-Push fehlgeschlagen: %s", e)
                 break
         self._state.mark_pushed(ok_ids)
 

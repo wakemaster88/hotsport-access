@@ -63,8 +63,9 @@ CREATE TABLE IF NOT EXISTS pis (
 CREATE TABLE IF NOT EXISTS scans (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     pi_id            TEXT NOT NULL,
-    code             TEXT NOT NULL,
-    granted          INTEGER NOT NULL,
+    kind             TEXT NOT NULL DEFAULT 'scan',
+    code             TEXT,
+    granted          INTEGER,
     reason           TEXT,
     scanned_at       INTEGER NOT NULL,
     received_at      INTEGER NOT NULL
@@ -89,6 +90,10 @@ CREATE TABLE IF NOT EXISTS settings (
 
 # Spalten, die in älteren Datenbanken eventuell fehlen. Werden per
 # `_ensure_columns` nachgetragen.
+_SCAN_COLUMNS_TO_BACKFILL: list[tuple[str, str]] = [
+    ("kind", "TEXT NOT NULL DEFAULT 'scan'"),
+]
+
 _PI_COLUMNS_TO_BACKFILL: list[tuple[str, str]] = [
     ("enabled", "INTEGER NOT NULL DEFAULT 1"),
     ("interface_id", "TEXT"),
@@ -130,6 +135,8 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.executescript(SCHEMA)
     _ensure_columns(conn, "pis", _PI_COLUMNS_TO_BACKFILL)
+    _ensure_columns(conn, "scans", _SCAN_COLUMNS_TO_BACKFILL)
+    _migrate_scans_nullable(conn)
     _seed_settings(conn)
     conn.commit()
     return conn
@@ -142,6 +149,47 @@ def _ensure_columns(
     for col, decl in columns:
         if col not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+
+def _migrate_scans_nullable(conn: sqlite3.Connection) -> None:
+    """Macht `code` + `granted` in `scans` nullable.
+
+    Ältere DBs hatten beide als NOT NULL deklariert (passt nur zu echten
+    Scans, nicht zu Service-Events). SQLite kann ALTER COLUMN nicht – also
+    table-rename + recreate + copy.
+    """
+    info = list(conn.execute("PRAGMA table_info(scans)"))
+    by_name = {row["name"]: row for row in info}
+    needs_migration = False
+    for col in ("code", "granted"):
+        if col in by_name and by_name[col]["notnull"]:
+            needs_migration = True
+            break
+    if not needs_migration:
+        return
+
+    conn.executescript(
+        """
+        ALTER TABLE scans RENAME TO scans__old;
+        CREATE TABLE scans (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            pi_id            TEXT NOT NULL,
+            kind             TEXT NOT NULL DEFAULT 'scan',
+            code             TEXT,
+            granted          INTEGER,
+            reason           TEXT,
+            scanned_at       INTEGER NOT NULL,
+            received_at      INTEGER NOT NULL
+        );
+        INSERT INTO scans (id, pi_id, kind, code, granted, reason, scanned_at, received_at)
+            SELECT id, pi_id,
+                   COALESCE(kind, 'scan'),
+                   code, granted, reason, scanned_at, received_at
+            FROM scans__old;
+        DROP TABLE scans__old;
+        CREATE INDEX IF NOT EXISTS idx_scans_pi_time ON scans(pi_id, scanned_at DESC);
+        """
+    )
 
 
 def _seed_settings(conn: sqlite3.Connection) -> None:
@@ -304,34 +352,71 @@ def insert_scan(
     conn: sqlite3.Connection,
     *,
     pi_id: str,
-    code: str,
-    granted: bool,
+    code: str | None,
+    granted: bool | None,
     reason: str | None,
     scanned_at: int,
+    kind: str = "scan",
 ) -> None:
+    """Speichert ein Pi-Ereignis. Für reine Scans bleibt `code`/`granted`
+    befüllt; bei Service-Events (kind != "scan") sind beide typischerweise
+    NULL, der Inhalt steckt in `reason`.
+    """
+    granted_int: int | None
+    if granted is None:
+        granted_int = None
+    else:
+        granted_int = 1 if granted else 0
     with tx(conn):
         conn.execute(
             """
-            INSERT INTO scans (pi_id, code, granted, reason, scanned_at, received_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO scans (pi_id, kind, code, granted, reason, scanned_at, received_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (pi_id, code, 1 if granted else 0, reason, scanned_at, int(time.time())),
+            (pi_id, kind, code, granted_int, reason, scanned_at, int(time.time())),
+        )
+        # Pro Pi nur die letzten 100 Ereignisse behalten – konsistent mit dem
+        # lokalen 100er-Limit auf den Pis selbst.
+        conn.execute(
+            "DELETE FROM scans WHERE pi_id = ? AND id NOT IN ("
+            "  SELECT id FROM scans WHERE pi_id = ? ORDER BY scanned_at DESC LIMIT 100"
+            ")",
+            (pi_id, pi_id),
         )
 
 
 def recent_scans(
     conn: sqlite3.Connection, *, pi_id: str | None = None, limit: int = 50
 ) -> list[sqlite3.Row]:
+    """Letzte echte Scans (kind='scan'). Für die globale 'Letzte Scans'-Liste
+    im Dashboard; Service-Events erscheinen dort nicht."""
     if pi_id:
         return list(
             conn.execute(
-                "SELECT * FROM scans WHERE pi_id = ? ORDER BY scanned_at DESC LIMIT ?",
+                "SELECT * FROM scans WHERE pi_id = ? AND kind = 'scan' "
+                "ORDER BY scanned_at DESC, id DESC LIMIT ?",
                 (pi_id, limit),
             )
         )
     return list(
         conn.execute(
-            "SELECT * FROM scans ORDER BY scanned_at DESC LIMIT ?", (limit,)
+            "SELECT * FROM scans WHERE kind = 'scan' "
+            "ORDER BY scanned_at DESC, id DESC LIMIT ?",
+            (limit,),
+        )
+    )
+
+
+def recent_events(
+    conn: sqlite3.Connection, *, pi_id: str, limit: int = 100
+) -> list[sqlite3.Row]:
+    """Letzte `limit` Ereignisse eines Pis – Scans **und** Service-Events.
+    Wird im Pi-Detail-Panel angezeigt."""
+    return list(
+        conn.execute(
+            "SELECT * FROM scans WHERE pi_id = ? "
+            "ORDER BY scanned_at DESC, id DESC LIMIT ?",
+            (pi_id, limit),
         )
     )
 

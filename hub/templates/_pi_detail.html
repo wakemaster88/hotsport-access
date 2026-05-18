@@ -112,4 +112,77 @@
             </form>
         </div>
     </div>
+
+    <div class="pi-events">
+        <h3>Letzte Ereignisse (lokal &amp; übermittelt)</h3>
+        {% set events = p.get("events") or [] %}
+        {% if events %}
+            <p class="muted small">
+                Bis zu 100 Einträge pro Pi. Pi loggt sie auch ohne Hub-Verbindung
+                lokal und holt sie beim nächsten Heartbeat nach.
+            </p>
+            <table class="compact">
+                <thead>
+                    <tr>
+                        <th>Zeit</th>
+                        <th>Typ</th>
+                        <th>Code</th>
+                        <th>Ergebnis</th>
+                        <th>Detail</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in events %}
+                        <tr>
+                            <td class="small">{{ e["scanned_at"] | age }}<br />
+                                <span class="muted small">{{ e["scanned_at"] | dt }}</span></td>
+                            <td>
+                                {% set k = e["kind"] or "scan" %}
+                                {% if k == "scan" %}
+                                    <span class="muted-badge">Scan</span>
+                                {% elif k == "service_start" %}
+                                    <span class="ok">Start</span>
+                                {% elif k == "service_stop" %}
+                                    <span class="muted-badge">Stop</span>
+                                {% elif k == "config_applied" %}
+                                    <span class="muted-badge">Config</span>
+                                {% elif k == "config_change" %}
+                                    <span class="muted-badge">Config-Wechsel</span>
+                                {% elif k == "waiting_config" %}
+                                    <span class="warn">Warte Config</span>
+                                {% elif k == "api_error" %}
+                                    <span class="bad">API-Fehler</span>
+                                {% elif k == "hub_lost" %}
+                                    <span class="bad">Hub weg</span>
+                                {% elif k == "hub_reconnect" %}
+                                    <span class="ok">Hub zurück</span>
+                                {% else %}
+                                    <span class="muted-badge">{{ k }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if e["code"] %}<code>{{ e["code"] }}</code>{% else %}—{% endif %}
+                            </td>
+                            <td>
+                                {% if e["granted"] == 1 %}
+                                    <span class="ok">erlaubt</span>
+                                {% elif e["granted"] == 0 %}
+                                    <span class="bad">abgelehnt</span>
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td class="muted small">{{ e["reason"] or "" }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="muted">
+                Noch keine Ereignisse empfangen. Sobald der Pi sich mit
+                aktivem Hub-Token meldet, erscheinen hier seine Scans und
+                Service-Ereignisse.
+            </p>
+        {% endif %}
+    </div>
 </div>

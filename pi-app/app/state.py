@@ -1,8 +1,18 @@
 """Lokaler Zustand des Pi-Daemons.
 
-Wir halten ihn bewusst klein: nur die letzten Scans als Append-only-Log und
-einen kleinen Health-State. Damit ist der Pi auch ohne Hub-Verbindung lange
-stabil benutzbar – beim nächsten Heartbeat wird alles aufgeholt.
+Speichert die letzten 100 Ereignisse (Scans + Service-Events) als
+Append-only-Log. Damit:
+- Der Pi ist auch ohne Hub-Verbindung lange stabil benutzbar.
+- Beim nächsten Heartbeat werden alle ungepushten Ereignisse an den Hub
+  nachgeliefert.
+- Die DB bleibt klein – `trim_to_max_rows()` kappt nach jedem Insert auf
+  die letzten 100 Einträge (FIFO).
+
+Die Tabelle heißt aus historischen Gründen weiter `scans`, enthält aber
+über das `kind`-Feld auch Nicht-Scan-Events (z.B. ``service_start``,
+``config_applied``, ``api_error``). Für reine Scans bleibt `code`,
+`granted`, `reason` befüllt; bei Events ist `code`/`granted` typischerweise
+NULL und der Inhalt steckt in `reason`.
 """
 
 from __future__ import annotations
@@ -18,14 +28,18 @@ from typing import Iterator
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS scans (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    code        TEXT NOT NULL,
-    granted     INTEGER NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'scan',
+    code        TEXT,
+    granted     INTEGER,
     reason      TEXT,
     scanned_at  INTEGER NOT NULL,
     pushed      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_scans_pushed ON scans(pushed, scanned_at);
+CREATE INDEX IF NOT EXISTS idx_scans_at     ON scans(scanned_at DESC);
 """
+
+MAX_LOCAL_EVENTS = 100
 
 
 class State:
@@ -35,11 +49,21 @@ class State:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(SCHEMA)
+        # Schema-Migration für ältere DBs: code/granted werden zu nullable,
+        # neue Spalte `kind` ergänzen wo sie noch fehlt.
+        self._migrate_existing_schema()
         self._conn.commit()
         self._lock = threading.Lock()
         self._last_scan_at: int | None = None
         self._last_scan_code: str | None = None
         self._last_scan_granted: bool | None = None
+
+    def _migrate_existing_schema(self) -> None:
+        cols = {row["name"] for row in self._conn.execute("PRAGMA table_info(scans)")}
+        if "kind" not in cols:
+            self._conn.execute(
+                "ALTER TABLE scans ADD COLUMN kind TEXT NOT NULL DEFAULT 'scan'"
+            )
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
@@ -52,22 +76,81 @@ class State:
                 raise
 
     def record_scan(self, *, code: str, granted: bool, reason: str | None) -> int:
+        return self._insert(
+            kind="scan", code=code, granted=granted, reason=reason
+        )
+
+    def record_event(self, *, kind: str, reason: str | None = None) -> int:
+        """Loggt ein Service-/System-Event (kein Scan).
+
+        Beispiele für `kind`: ``service_start``, ``service_stop``,
+        ``config_applied``, ``api_error``, ``hub_lost``, ``hub_reconnect``,
+        ``reader_error``.
+        """
+        return self._insert(kind=kind, code=None, granted=None, reason=reason)
+
+    def _insert(
+        self,
+        *,
+        kind: str,
+        code: str | None,
+        granted: bool | None,
+        reason: str | None,
+    ) -> int:
         now = int(time.time())
         with self._tx() as c:
             cur = c.execute(
-                "INSERT INTO scans (code, granted, reason, scanned_at) VALUES (?, ?, ?, ?)",
-                (code, 1 if granted else 0, reason, now),
+                "INSERT INTO scans (kind, code, granted, reason, scanned_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    kind,
+                    code,
+                    None if granted is None else (1 if granted else 0),
+                    reason,
+                    now,
+                ),
             )
-            self._last_scan_at = now
-            self._last_scan_code = code
-            self._last_scan_granted = granted
+            # Auf max 100 Einträge kappen – ältester gepushter Eintrag fliegt
+            # zuerst raus, damit ungepushte Events bei Hub-Ausfall nicht
+            # verloren gehen.
+            self._trim_to_max_rows_locked(c)
+            if kind == "scan":
+                self._last_scan_at = now
+                self._last_scan_code = code
+                self._last_scan_granted = bool(granted) if granted is not None else None
             return cur.lastrowid or 0
+
+    def _trim_to_max_rows_locked(self, c: sqlite3.Connection) -> None:
+        cnt = c.execute("SELECT COUNT(*) FROM scans").fetchone()[0]
+        if cnt <= MAX_LOCAL_EVENTS:
+            return
+        excess = cnt - MAX_LOCAL_EVENTS
+        # Bevorzugt gepushte Einträge löschen (sind beim Hub gesichert);
+        # wenn das nicht reicht, auch ältere ungepushte – dort hat der Pi
+        # offensichtlich länger keine Hub-Verbindung gehabt.
+        c.execute(
+            "DELETE FROM scans WHERE id IN ("
+            "  SELECT id FROM scans "
+            "  ORDER BY pushed DESC, scanned_at ASC, id ASC LIMIT ?"
+            ")",
+            (excess,),
+        )
 
     def unpushed(self, limit: int = 50) -> list[sqlite3.Row]:
         with self._lock:
             return list(
                 self._conn.execute(
                     "SELECT * FROM scans WHERE pushed = 0 ORDER BY scanned_at LIMIT ?",
+                    (limit,),
+                )
+            )
+
+    def recent(self, limit: int = MAX_LOCAL_EVENTS) -> list[sqlite3.Row]:
+        """Letzte `limit` Ereignisse, neueste zuerst."""
+        with self._lock:
+            return list(
+                self._conn.execute(
+                    "SELECT * FROM scans ORDER BY scanned_at DESC, id DESC LIMIT ?",
                     (limit,),
                 )
             )
@@ -89,14 +172,7 @@ class State:
             }
 
     def cleanup_old(self, *, keep_days: int = 30) -> int:
-        """Löscht gepushte Scans, die älter als `keep_days` sind.
-
-        Verhindert, dass die lokale SQLite über Monate ungebremst wächst.
-        """
-        cutoff = int(time.time()) - keep_days * 86400
-        with self._tx() as c:
-            cur = c.execute(
-                "DELETE FROM scans WHERE pushed = 1 AND scanned_at < ?",
-                (cutoff,),
-            )
-            return cur.rowcount or 0
+        """Legacy-Hook (wird vom HubClient noch aufgerufen). Mit dem 100er-
+        Limit ist das eigentlich redundant; wir lassen den Aufruf no-op und
+        geben 0 zurück, damit alte Pi-Versionen kompatibel bleiben."""
+        return 0
