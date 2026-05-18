@@ -143,6 +143,24 @@ def main() -> int:
         sdnotify.stopping()
         stop_flag["stop"] = True
 
+        # Reader hängt typischerweise in einem blockierenden read() auf
+        # /dev/input/event0 – ohne Tastendruck reagiert die for-Schleife
+        # nicht. Spätestens nach 3 s erzwingen wir den Exit, damit systemd
+        # nicht erst nach SIGTERM-Timeout (10 s) mit SIGKILL kommt.
+        def _force_exit_on_stop() -> None:
+            time.sleep(3.0)
+            if stop_flag["stop"]:
+                log.warning("Force-Exit nach Stop-Signal (Reader hing).")
+                try:
+                    health_server.shutdown()
+                except Exception:  # noqa: BLE001
+                    pass
+                os._exit(0)
+
+        threading.Thread(
+            target=_force_exit_on_stop, name="force-stop-exit", daemon=True
+        ).start()
+
     signal.signal(signal.SIGTERM, _on_signal)
     signal.signal(signal.SIGINT, _on_signal)
 

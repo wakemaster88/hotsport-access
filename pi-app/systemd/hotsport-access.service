@@ -18,6 +18,14 @@ RestartSec=2s
 # systemd den Prozess und startet ihn neu.
 WatchdogSec=60s
 
+# Reader hängt bei keyboard/qr im blockierenden read() bis zum nächsten
+# Tastendruck. Daemon hat einen 3-s-Force-Exit nach SIGTERM; falls der
+# nicht greift, lässt systemd ihn nach 5 s mit SIGKILL beenden statt
+# 90 s lang auf einen sauberen Stop zu warten.
+TimeoutStopSec=5s
+KillSignal=SIGTERM
+SendSIGKILL=yes
+
 Nice=-5
 
 # State-Dir muss beschreibbar bleiben, auch wenn / read-only ist
