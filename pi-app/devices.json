@@ -61,6 +61,14 @@
       "reader_mode": "keyboard",
       "inout": "out",
       "interface_id": "103"
+    },
+    {
+      "pi_id": "hotsport-pi-04",
+      "name": "Haupteingang Mitte Eingang",
+      "location": "hotsport",
+      "reader_mode": "keyboard",
+      "inout": "in",
+      "interface_id": "1"
     }
   ]
 }
