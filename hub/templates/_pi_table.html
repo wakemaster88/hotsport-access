@@ -11,7 +11,6 @@
             <th>Letzter Scan</th>
             <th>Heartbeat</th>
             <th>Status</th>
-            <th>Aktion</th>
         </tr>
     </thead>
     <tbody>
@@ -96,24 +95,9 @@
                         <span class="ok">ok</span>
                     {% endif %}
                 </td>
-                <td>
-                    <form action="/admin/set-version" method="post" class="inline-form">
-                        <input type="hidden" name="pi_id" value="{{ p['pi_id'] }}" />
-                        <select name="version">
-                            <option value="">— keine Vorgabe —</option>
-                            {% for r in releases %}
-                                <option value="{{ r.version }}"
-                                    {% if p["desired_version"] == r.version %}selected{% endif %}>
-                                    {{ r.version }}
-                                </option>
-                            {% endfor %}
-                        </select>
-                        <button type="submit">Setzen</button>
-                    </form>
-                </td>
             </tr>
             <tr id="det-{{ p['pi_id'] }}" class="detail-row">
-                <td colspan="10">
+                <td colspan="9">
                     {% include "_pi_detail.html" %}
                 </td>
             </tr>

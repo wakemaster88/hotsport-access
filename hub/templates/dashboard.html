@@ -100,54 +100,6 @@
          hx-swap="innerHTML">
         {% include "_pi_table.html" %}
     </div>
-
-    <details>
-        <summary>Alle Pis auf eine Version setzen</summary>
-        <form action="/admin/set-version" method="post" class="inline-form">
-            <input type="hidden" name="pi_id" value="*" />
-            <label>Soll-Version
-                <select name="version" required>
-                    {% for r in releases %}
-                        <option value="{{ r.version }}">{{ r.version }}</option>
-                    {% endfor %}
-                </select>
-            </label>
-            <button type="submit">Auf alle anwenden</button>
-        </form>
-    </details>
-</section>
-
-<section class="card">
-    <h2>Releases</h2>
-    {% if releases %}
-        <table>
-            <thead><tr><th>Version</th><th>SHA-256</th><th>Größe</th></tr></thead>
-            <tbody>
-                {% for r in releases %}
-                    <tr>
-                        <td><code>{{ r.version }}</code></td>
-                        <td><code class="hash">{{ r.sha256 }}</code></td>
-                        <td>{{ "%.1f" % (r.size_bytes / 1024 / 1024) }} MB</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <p class="muted">Noch keine Releases vorhanden.</p>
-    {% endif %}
-
-    <details>
-        <summary>Neuen Release hochladen</summary>
-        <form action="/admin/upload" method="post" enctype="multipart/form-data" class="inline-form">
-            <label>Version <input name="version" placeholder="z.B. 2026.05.18-1" required pattern="[A-Za-z0-9._\-]+" /></label>
-            <label>ZIP-Datei <input name="file" type="file" accept=".zip" required /></label>
-            <button type="submit">Hochladen</button>
-        </form>
-        <p class="muted small">
-            Erwarteter Dateiname-Pattern: <code>hotsport-access-&lt;version&gt;.zip</code>.
-            Der Hub erstellt die <code>.sha256</code>-Begleitdatei automatisch.
-        </p>
-    </details>
 </section>
 
 <section class="card">
