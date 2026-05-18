@@ -736,6 +736,61 @@ dl.config-list dd { margin: 0; }
 }
 .copyable:hover { background: var(--brand-red-shadow); }
 
+.copy-btn.small {
+    position: static;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.7rem;
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text);
+    border-color: var(--border);
+}
+.copy-btn.small:hover { background: var(--brand-red); border-color: var(--brand-red); color: #fff; }
+.copy-btn.small.copied { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+.hub-access-card {
+    border-left: 4px solid var(--brand-red);
+}
+.hub-access-list {
+    list-style: none;
+    margin: 0.6rem 0 0.4rem 0;
+    padding: 0;
+    display: grid;
+    gap: 0.4rem;
+}
+.hub-access-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.7rem;
+    background: rgba(0, 0, 0, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    flex-wrap: wrap;
+}
+.hub-access-list a {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.95rem;
+    color: var(--brand-red);
+    text-decoration: none;
+}
+.hub-access-list a:hover { text-decoration: underline; }
+.hub-access-list .badge.ok {
+    margin-left: auto;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    background: var(--ok);
+    color: #fff;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.hub-access-card details pre {
+    background: rgba(0, 0, 0, 0.04);
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
 .setup-creds {
     margin-top: 0.9rem;
     display: grid;

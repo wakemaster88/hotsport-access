@@ -16,6 +16,14 @@
         <div class="cred-row">
             <span class="cred-label">Hub-URL</span>
             <code class="copyable" data-copy="{{ hub_url }}">{{ hub_url }}</code>
+            {% if hub_lan_urls and hub_lan_urls|length > 1 %}
+            <span class="muted small">
+                · weitere Adressen:
+                {% for u in hub_lan_urls if u != hub_url %}
+                    <code class="copyable" data-copy="{{ u }}">{{ u }}</code>{% if not loop.last %},{% endif %}
+                {% endfor %}
+            </span>
+            {% endif %}
         </div>
 
         <div class="cred-row">
@@ -632,8 +640,9 @@ sudo systemctl restart hotsport-access</code></pre>
 </div>
 
 <script>
+// Token-Reveal-Handler ist setup-spezifisch. Copy-Buttons werden vom
+// globalen /static/copy.js verarbeitet (in base.html geladen).
 document.addEventListener('click', async function (e) {
-    // Token zuerst aus Maskierung enthüllen (vor copyable-Handling)
     var revealBtn = e.target.closest('#token-reveal');
     if (revealBtn) {
         var disp = document.getElementById('token-display');
@@ -650,43 +659,6 @@ document.addEventListener('click', async function (e) {
             }
         }
         return;
-    }
-
-    var btn = e.target.closest('.copy-btn');
-    if (btn) {
-        var targetId = btn.getAttribute('data-copy-target');
-        var el = document.getElementById(targetId);
-        if (!el) return;
-        var text = el.innerText.replace(/\n+$/, '');
-        try {
-            await navigator.clipboard.writeText(text);
-            var orig = btn.textContent;
-            btn.textContent = 'Kopiert ✓';
-            btn.classList.add('copied');
-            setTimeout(function () {
-                btn.textContent = orig;
-                btn.classList.remove('copied');
-            }, 1500);
-        } catch (err) {
-            btn.textContent = 'Fehler – manuell kopieren';
-        }
-        return;
-    }
-    var copyable = e.target.closest('.copyable');
-    if (copyable && copyable.dataset.copy) {
-        try {
-            await navigator.clipboard.writeText(copyable.dataset.copy);
-            var prev = copyable.textContent;
-            copyable.textContent = 'Kopiert ✓';
-            setTimeout(function () {
-                // Bei Token: maskierten Wert zurücksetzen, falls noch nicht enthüllt
-                if (copyable.id === 'token-display' && copyable.dataset.revealed !== '1') {
-                    copyable.textContent = '••••••••••••••••';
-                } else {
-                    copyable.textContent = prev;
-                }
-            }, 1200);
-        } catch (err) { /* ignore */ }
     }
 });
 </script>

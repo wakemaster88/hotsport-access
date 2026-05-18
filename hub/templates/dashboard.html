@@ -2,6 +2,43 @@
 
 {% block content %}
 
+{% if hub_lan_urls %}
+<section class="card hub-access-card">
+    <h2>Hub-Zugang im LAN</h2>
+    <p class="muted small">
+        Diese URL(s) auf anderen Rechnern im Netz im Browser öffnen, um das
+        Dashboard zu erreichen. Pis finden den Hub zwar automatisch, aber
+        der Erstkontakt geht <em>deutlich schneller</em>, wenn die IP fest in
+        <code>pi-app/devices.json</code> &rarr; <code>defaults.hub_url</code>
+        eingetragen ist.
+    </p>
+    <ul class="hub-access-list">
+        {% for url in hub_lan_urls %}
+        <li>
+            <a href="{{ url }}" rel="noreferrer">{{ url }}</a>
+            <button type="button"
+                    class="copy-btn small"
+                    data-copy-text="{{ url }}">Kopieren</button>
+            {% if loop.first %}<span class="badge ok">empfohlen</span>{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    <details class="muted small">
+        <summary>In <code>devices.json</code> hinterlegen (Pi findet Hub sofort)</summary>
+        <pre><code>{
+  "defaults": {
+    "hub_url": "{{ hub_lan_urls[0] }}"
+  }
+}</code></pre>
+        <p>
+            Nach dem Eintragen <code>git commit &amp;&amp; git push</code> –
+            beim nächsten Auto-Update auf dem Pi greift der Wert
+            automatisch.
+        </p>
+    </details>
+</section>
+{% endif %}
+
 <section class="card">
     <h2>Globale API-Einstellungen</h2>
     <p class="muted small">

@@ -145,59 +145,113 @@ def _resolve_hub_url(request: Request) -> str:
     return base
 
 
-def _detect_lan_ip() -> str | None:
-    """Findet die primäre LAN-IP ohne Drittpakete und ohne tatsächlichen Traffic.
+def _lan_ip_rank(ip: str) -> int:
+    """Sortier-Rang für LAN-IPs: privater Bereich vor allem anderen."""
+    if ip.startswith("192.168."):
+        return 0
+    if ip.startswith("10."):
+        return 1
+    try:
+        second = int(ip.split(".")[1])
+        if ip.startswith("172.") and 16 <= second <= 31:
+            return 2
+    except (ValueError, IndexError):
+        pass
+    return 3
 
-    Strategie:
-    a) UDP-Sockets zu typischen Gateway-Adressen öffnen, jeweils Quell-IP
-       sammeln (typische LAN-Subnetze).
-    b) Fallback: Routing zu öffentlichen DNS-Adressen (kann VPN treffen).
-    c) Sortieren nach Präferenz (192.168 > 10 > 172.16-31).
+
+def _detect_lan_ips() -> list[str]:
+    """Findet *alle* LAN-IPv4-Adressen aller Interfaces.
+
+    Kombination aus zwei Quellen, weil keine alleine zuverlässig ist:
+    - UDP-Connect-Probes zu typischen Gateways (liefert die IP des
+      Routing-Default-Interfaces – das ist meist das praktisch nutzbare).
+    - ``getaddrinfo(gethostname())`` (liefert auf Linux/macOS oft auch
+      Adressen anderer Interfaces, z.B. wenn der Hub mit Ethernet *und*
+      WLAN gleichzeitig läuft).
+
+    Loopback (127.0.0.0/8) und Link-Local (169.254.0.0/16) werden
+    rausgefiltert. Sortiert nach Präferenz (private LANs zuerst).
     """
     import socket
 
-    candidates: list[str] = []
+    candidates: set[str] = set()
+
+    def _accept(ip: str | None) -> None:
+        if not ip:
+            return
+        if ip.startswith("127.") or ip.startswith("169.254."):
+            return
+        try:
+            socket.inet_aton(ip)
+        except OSError:
+            return
+        candidates.add(ip)
 
     def _probe(target_host: str, target_port: int) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             sock.settimeout(0.05)
             sock.connect((target_host, target_port))
-            ip = sock.getsockname()[0]
-            if ip and not ip.startswith("127.") and ip not in candidates:
-                candidates.append(ip)
+            _accept(sock.getsockname()[0])
         except (OSError, socket.error):
             pass
         finally:
             sock.close()
 
-    # Typische LAN-Gateways (UDP-Connect routet ohne Pakete zu senden)
     for gw in ("192.168.1.1", "192.168.0.1", "192.168.178.1",
                "10.0.0.1", "10.0.0.138", "172.20.0.1"):
         _probe(gw, 80)
-    # Fallbacks – zur Not auch VPN-IPs einsammeln
     _probe("8.8.8.8", 80)
     _probe("1.1.1.1", 80)
 
-    def _rank(ip: str) -> int:
-        # Niedriger Rang = bevorzugt
-        if ip.startswith("192.168."):
-            return 0
-        if ip.startswith("10."):
-            return 1
-        # 172.16.0.0/12
-        try:
-            second = int(ip.split(".")[1])
-            if ip.startswith("172.") and 16 <= second <= 31:
-                return 2
-        except (ValueError, IndexError):
-            pass
-        return 3
+    try:
+        host = socket.gethostname()
+        for info in socket.getaddrinfo(host, None, family=socket.AF_INET):
+            _accept(info[4][0])
+    except (OSError, socket.gaierror):
+        pass
 
-    if not candidates:
-        return None
-    candidates.sort(key=_rank)
-    return candidates[0]
+    return sorted(candidates, key=lambda ip: (_lan_ip_rank(ip), ip))
+
+
+def _detect_lan_ip() -> str | None:
+    """Erste/bevorzugte LAN-IP – Wrapper für Bestehendes."""
+    found = _detect_lan_ips()
+    return found[0] if found else None
+
+
+def _hub_lan_urls(request: Request) -> list[str]:
+    """Liste aller LAN-erreichbaren Hub-URLs für die Anzeige im Dashboard.
+
+    Inkludiert eine eventuelle ``HOTSPORT_HUB_PUBLIC_URL`` an erster Stelle
+    (Operator-Override) und alle automatisch erkannten LAN-IPs jeweils mit
+    dem Port, unter dem das Dashboard gerade läuft.
+    """
+    from urllib.parse import urlparse
+
+    cfg: HubConfig = request.app.state.cfg
+    parsed = urlparse(str(request.base_url).rstrip("/"))
+    scheme = parsed.scheme or "http"
+    port = parsed.port
+
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(url: str) -> None:
+        u = url.rstrip("/")
+        if u and u not in seen:
+            seen.add(u)
+            out.append(u)
+
+    if cfg.public_url:
+        _add(cfg.public_url)
+
+    for ip in _detect_lan_ips():
+        netloc = f"{ip}:{port}" if port else ip
+        _add(f"{scheme}://{netloc}")
+
+    return out
 
 
 def _register_routes(app: FastAPI) -> None:
@@ -344,6 +398,7 @@ def _register_routes(app: FastAPI) -> None:
                 "now": int(time.time()),
                 "offline_threshold": cfg.offline_threshold_seconds,
                 "reader_modes": ("keyboard", "qr_camera", "rfid_mfrc522"),
+                "hub_lan_urls": _hub_lan_urls(request),
             },
         )
 
@@ -363,6 +418,7 @@ def _register_routes(app: FastAPI) -> None:
                 "now": int(time.time()),
                 "offline_threshold": cfg.offline_threshold_seconds,
                 "hub_url": hub_url,
+                "hub_lan_urls": _hub_lan_urls(request),
                 # Pi-Token aus der Hub-Config – wird auf der Setup-Seite
                 # nur eingeblendet, wenn der Operator auf "Token anzeigen"
                 # klickt. Setup-Seite selbst ist über Basic-Auth geschützt
