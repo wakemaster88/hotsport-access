@@ -115,14 +115,14 @@ PY
 fi
 
 # ---------- Pi-Daten + globale Sections aus devices.json holen ----------
-# Output: 16 Tab-getrennte Felder. IFS=$'\t' wichtig, sonst splittet Bash auch
+# Output: 17 Tab-getrennte Felder. IFS=$'\t' wichtig, sonst splittet Bash auch
 # an Leerzeichen ("Eingang Nord" -> "Eingang" + "Nord").
 IFS=$'\t' read -r \
     PI_NAME PI_LOC MODE INOUT INTERFACE \
     RELAY_PIN RELAY_PULSE BUZZER_PIN \
     READER_DEVICE READER_CAMIDX \
-    HUB_URL \
-    API_BASE_URL API_VERIFY_TLS API_CONNECT_TIMEOUT API_REQUEST_TIMEOUT \
+    HUB_URL HUB_TOKEN_FROM_JSON \
+    API_BASE_URL API_TOKEN_FROM_JSON API_VERIFY_TLS API_CONNECT_TIMEOUT API_REQUEST_TIMEOUT \
     < <(
     python3 - "${DEVICES_JSON}" "${PI_ID}" <<'PY'
 import json, sys
@@ -168,7 +168,9 @@ print("\t".join([
     esc(pick("reader_device_path", default="/dev/input/event0")),
     esc(pick("reader_camera_index", default=0)),
     esc(hub.get("base_url", "")),
+    esc(hub.get("pi_token", "")),
     esc(api.get("base_url", "")),
+    esc(api.get("bearer_token", "")),
     esc(api.get("verify_tls", False)),
     esc(api.get("connect_timeout_seconds", 1.0)),
     esc(api.get("request_timeout_seconds", 2.0)),
@@ -186,11 +188,18 @@ if [[ "${API_BASE_URL}" == "-" || -z "${API_BASE_URL}" ]]; then
 fi
 
 # Defaults für leere Felder ("-" -> sinnvoller Standardwert)
-[[ "${HUB_URL}"        == "-" ]] && HUB_URL=""
-[[ "${INTERFACE}"      == "-" ]] && INTERFACE=""
-[[ "${API_VERIFY_TLS}" == "-" ]] && API_VERIFY_TLS="false"
+[[ "${HUB_URL}"              == "-" ]] && HUB_URL=""
+[[ "${HUB_TOKEN_FROM_JSON}"  == "-" ]] && HUB_TOKEN_FROM_JSON=""
+[[ "${API_TOKEN_FROM_JSON}"  == "-" ]] && API_TOKEN_FROM_JSON=""
+[[ "${INTERFACE}"            == "-" ]] && INTERFACE=""
+[[ "${API_VERIFY_TLS}"       == "-" ]] && API_VERIFY_TLS="false"
 
-# ---------- API-Bearer-Token abfragen (Pflicht) ----------
+# ---------- API-Bearer-Token: Argument > devices.json > interaktiv ----------
+API_TOKEN_SOURCE="argument"
+if [[ -z "${API_TOKEN}" ]] && [[ -n "${API_TOKEN_FROM_JSON}" ]]; then
+    API_TOKEN="${API_TOKEN_FROM_JSON}"
+    API_TOKEN_SOURCE="devices.json"
+fi
 if [[ -z "${API_TOKEN}" ]]; then
     if [[ "${HAS_TTY}" -eq 0 ]]; then
         echo "FEHLER: Kein TTY und kein API-Bearer-Token übergeben." >&2
@@ -198,20 +207,29 @@ if [[ -z "${API_TOKEN}" ]]; then
     fi
     echo
     echo "Binarytec-API-Bearer-Token (Pflicht – ohne den können keine Scans validiert werden):"
+    echo "  Tipp: Token in pi-app/devices.json -> api.bearer_token eintragen,"
+    echo "        dann wird er beim nächsten Mal automatisch genommen."
     read -r -s -p "  > " API_TOKEN </dev/tty 2>/dev/null || API_TOKEN=""
     echo
+    API_TOKEN_SOURCE="interaktiv"
 fi
 if [[ -z "${API_TOKEN}" ]]; then
     echo "FEHLER: Kein API-Token angegeben." >&2
     exit 2
 fi
 
-# ---------- Hub-Token abfragen (optional) ----------
+# ---------- Hub-Token: Argument > devices.json > interaktiv (optional) ----------
+HUB_TOKEN_SOURCE="argument"
+if [[ -z "${HUB_TOKEN}" ]] && [[ -n "${HUB_TOKEN_FROM_JSON}" ]]; then
+    HUB_TOKEN="${HUB_TOKEN_FROM_JSON}"
+    HUB_TOKEN_SOURCE="devices.json"
+fi
 if [[ -z "${HUB_TOKEN}" ]] && [[ -n "${HUB_URL}" ]] && [[ "${HAS_TTY}" -eq 1 ]]; then
     echo
     echo "Hub-Pi-Token (optional, leer lassen = Standalone-Modus ohne Dashboard-Heartbeat):"
     read -r -s -p "  > " HUB_TOKEN </dev/tty 2>/dev/null || HUB_TOKEN=""
     echo
+    HUB_TOKEN_SOURCE="interaktiv"
 fi
 
 # ---------- Übersicht + Bestätigung ----------
@@ -225,11 +243,11 @@ echo "  Richtung:     ${INOUT}"
 echo "  Interface-ID: ${INTERFACE}"
 echo "  Relais/Buzzer: GPIO${RELAY_PIN} (puls ${RELAY_PULSE}s) / GPIO${BUZZER_PIN}"
 echo "  API:          ${API_BASE_URL} (verify_tls=${API_VERIFY_TLS})"
-echo "  API-Token:    **********"
+echo "  API-Token:    ********** (Quelle: ${API_TOKEN_SOURCE})"
 if [[ -n "${HUB_URL}" ]]; then
     echo "  Hub:          ${HUB_URL}"
     if [[ -n "${HUB_TOKEN}" ]]; then
-        echo "  Hub-Token:    **********"
+        echo "  Hub-Token:    ********** (Quelle: ${HUB_TOKEN_SOURCE})"
     else
         echo "  Hub-Token:    (leer – kein Heartbeat, Standalone-Modus)"
     fi

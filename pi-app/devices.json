@@ -3,27 +3,26 @@
     "Zentrale Pi-Konfiguration für die hotsport-access Drehkreuze.",
     "",
     "Workflow:",
-    "  1. Diese Datei editieren (neuen Pi-Eintrag ergänzen oder ändern).",
+    "  1. Diese Datei editieren (Pi-Eintrag oder Tokens anpassen).",
     "  2. git commit && git push",
     "  3. Auf dem Pi: install.sh aufrufen, Pi-ID auswählen, fertig.",
     "",
-    "Was hier rein gehört (kein Geheimnis):",
-    "  - Hub-URL                          (LAN-IP, optional für Status-Dashboard)",
-    "  - Binarytec-API Base-URL + TLS     (LAN-IP, nicht-secret)",
-    "  - Pro Pi: pi_id, name, location, reader_mode, inout, interface_id,",
-    "    GPIO-Pins, Reader-Devicepfad/Kamera-Index",
-    "",
-    "Was NICHT hier rein gehört (Repo ist public):",
-    "  - api.bearer_token (Binarytec)     -> install.sh fragt ihn interaktiv ab",
-    "  - hub.pi_token                     -> install.sh fragt ihn interaktiv ab"
+    "ACHTUNG – SECURITY:",
+    "  Wenn api.bearer_token oder hub.pi_token hier befüllt sind,",
+    "  enthält dieses Repo Geheimnisse. Das Repo MUSS dann private sein!",
+    "  Alternative: Felder leer lassen ('' oder weglassen) – install.sh",
+    "  fragt sie dann interaktiv beim Einrichten des Pis ab und schreibt",
+    "  sie nur in die lokale /etc/hotsport-access/config.toml auf dem Pi."
   ],
 
   "hub": {
-    "base_url": "http://192.168.0.86:8765"
+    "base_url": "http://192.168.0.86:8765",
+    "pi_token": ""
   },
 
   "api": {
     "base_url": "https://192.168.251.50:444",
+    "bearer_token": "",
     "verify_tls": false,
     "connect_timeout_seconds": 1.0,
     "request_timeout_seconds": 2.0

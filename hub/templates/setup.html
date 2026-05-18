@@ -203,22 +203,30 @@ sudo bash scripts/install.sh</code></pre>
 Auswahl (Nummer 1-3): _</code></pre>
         </div>
 
-        <p>Danach werden zwei Tokens abgefragt (verdeckte Eingabe):</p>
+        <p>Danach kommen zwei Tokens ins Spiel. Reihenfolge:</p>
         <ol>
-            <li><strong>Binarytec-API-Bearer-Token</strong> – Pflicht. Ohne ihn
-                kann der Pi keine Tickets validieren.</li>
-            <li><strong>Hub-Pi-Token</strong> – optional. Leer lassen für
-                <em>Standalone-Modus</em> (Pi scant ohne Hub direkt gegen die
-                Binarytec-API, taucht aber nicht im Dashboard auf).
-                {% if pi_token %}
-                Falls gewünscht: Token findest du
-                <a href="#" onclick="document.querySelector('.setup-creds').scrollIntoView({behavior:'smooth'}); return false;">oben in dieser Anleitung</a>.
-                {% else %}
-                <span class="badge-warn">Aktuell kein Hub-Token gesetzt</span>
-                – kein Problem, Pi läuft trotzdem (Standalone).
-                {% endif %}
+            <li><code>devices.json</code>: <code>api.bearer_token</code> /
+                <code>hub.pi_token</code> – wenn dort gesetzt, übernimmt der
+                Installer sie ohne Nachfrage.
+                <span class="badge-warn">Achtung</span>
+                Tokens im Repo bedeuten: Repo MUSS privat sein.</li>
+            <li>Sonst (Felder leer): Installer fragt sie verdeckt am Pi ab,
+                schreibt sie nur in <code>/etc/hotsport-access/config.toml</code>.
             </li>
         </ol>
+        <p>
+            <strong>Binarytec-API-Bearer-Token</strong> ist Pflicht (ohne ihn
+            keine Ticket-Validierung).
+            <strong>Hub-Pi-Token</strong> ist optional – leer = Standalone-Modus
+            (Pi scant ohne Hub, taucht aber nicht im Dashboard auf).
+            {% if pi_token %}
+            Hub-Token findest du
+            <a href="#" onclick="document.querySelector('.setup-creds').scrollIntoView({behavior:'smooth'}); return false;">oben in dieser Anleitung</a>.
+            {% else %}
+            <span class="badge-warn">Aktuell kein Hub-Token gesetzt</span>
+            – kein Problem, Pi läuft trotzdem (Standalone).
+            {% endif %}
+        </p>
 
         <details>
             <summary>Direkter Aufruf mit Pi-ID + Tokens (überspringt alle Prompts)</summary>
