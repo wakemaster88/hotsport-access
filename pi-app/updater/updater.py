@@ -437,11 +437,20 @@ def _check_and_apply(cfg: dict, uc: UpdaterCfg) -> None:
         LAST_GOOD_FILE.write_text(remote + "\n", encoding="utf-8")
         IN_PROGRESS_FILE.unlink(missing_ok=True)
         log.info("Update %s OK", remote[:8])
-        _post_event_to_hub(
-            cfg, kind="update_applied",
-            reason=f"commit={remote[:8]} {_git_describe(uc.git_repo, remote)}",
-        )
-        return
+        try:
+            _post_event_to_hub(
+                cfg, kind="update_applied",
+                reason=f"commit={remote[:8]} {_git_describe(uc.git_repo, remote)}",
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("Hub-Event update_applied schlug fehl – ignoriere.")
+        # Wichtig: install.sh hat den Updater absichtlich NICHT neugestartet
+        # (HOTSPORT_NO_UPDATER_RESTART=1), damit der laufende Tick nicht
+        # mittendrin gekillt wird. Wir laden jetzt aber bewusst neu, damit
+        # der Updater-Prozess den frisch ausgerollten Code aufnimmt –
+        # systemd Restart=always bringt ihn sauber wieder hoch.
+        log.info("Updater regeneriert sich (Reload des frisch ausgerollten Codes) …")
+        sys.exit(0)
 
     log.error("Health nach Update %s fehlgeschlagen – Rollback", remote[:8])
     _mark_bad(remote, "health-check failed after install")
@@ -450,17 +459,28 @@ def _check_and_apply(cfg: dict, uc: UpdaterCfg) -> None:
     except subprocess.CalledProcessError as e:
         log.error("git reset für Rollback fehlgeschlagen: %s", e.stderr)
         IN_PROGRESS_FILE.unlink(missing_ok=True)
-        _post_event_to_hub(
-            cfg, kind="update_rolled_back",
-            reason=f"git reset failed: {(e.stderr or '').strip()[:200]}",
-        )
+        try:
+            _post_event_to_hub(
+                cfg, kind="update_rolled_back",
+                reason=f"git reset failed: {(e.stderr or '').strip()[:200]}",
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("Hub-Event update_rolled_back schlug fehl – ignoriere.")
         return
     _run_install(uc)
     IN_PROGRESS_FILE.unlink(missing_ok=True)
-    _post_event_to_hub(
-        cfg, kind="update_rolled_back",
-        reason=f"target {remote[:8]} unhealthy, back to {local[:8]}",
-    )
+    try:
+        _post_event_to_hub(
+            cfg, kind="update_rolled_back",
+            reason=f"target {remote[:8]} unhealthy, back to {local[:8]}",
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("Hub-Event update_rolled_back schlug fehl – ignoriere.")
+    # Auch nach Rollback bewusst neu laden – install.sh hat den
+    # zurueckgesetzten Stand frisch ausgerollt, der laufende Updater hat
+    # ihn aber noch nicht im Speicher.
+    log.info("Updater regeneriert sich nach Rollback …")
+    sys.exit(0)
 
 
 def main() -> int:
