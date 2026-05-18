@@ -64,9 +64,10 @@
                 (Quelle: <code>HOTSPORT_HUB_PI_TOKEN</code> in
                 <code>/etc/hotsport-hub.env</code>).</li>
             <li><strong>Internet auf dem Pi – nur beim ersten Bootstrap.</strong>
-                Der Installer zieht ~30 MB Pakete (apt + pip). Nach Schritt 2
-                kann der Pi dauerhaft offline bleiben; alle weiteren Updates
-                kommen vom Hub.</li>
+                Der Installer zieht ~30 MB Pakete (apt + pip + git clone von
+                <a href="https://github.com/wakemaster88/hotsport-access" target="_blank" rel="noopener">GitHub</a>).
+                Nach Schritt 2 kann der Pi dauerhaft offline bleiben; alle
+                weiteren Updates kommen vom Hub.</li>
         </ul>
     </div>
 </div>
@@ -100,53 +101,83 @@
     </div>
 </div>
 
-<!-- ============ Schritt 2: One-Command Bootstrap ============ -->
+<!-- ============ Schritt 2: GitHub-Bootstrap ============ -->
 
 <div class="setup-step card">
     <div class="step-head">
         <span class="step-num">2</span>
-        <h3>Pi-App vom Hub installieren (ein Befehl)</h3>
+        <h3>Pi-App via GitHub installieren</h3>
     </div>
     <div class="step-body">
         <p>
-            SSH auf den Pi und einen einzigen Befehl ausführen. Hub-URL ist
-            schon eingebettet, der Installer fragt Token, Pi-ID, Name, Standort
-            und Reader-Modus interaktiv ab (mit sinnvollen Defaults).
+            SSH auf den Pi. Der Bootstrap erfolgt direkt aus dem
+            öffentlichen GitHub-Repo.
         </p>
         <p class="hint">
             <strong>Wichtig:</strong> Der Pi braucht <em>für diesen einen Schritt</em>
-            Internet (apt + pip Download, ~30 MB). Danach kann er für immer
-            offline bleiben.
+            Internet (apt + pip + git, ~30 MB). Danach kann er für immer offline
+            bleiben &ndash; alle weiteren Updates kommen vom Hub im LAN.
+        </p>
+
+        <p><strong>2a) Repo klonen und Installer ausführen</strong></p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-bootstrap-github">Kopieren</button>
+            <pre id="code-bootstrap-github"><code>sudo apt-get update
+sudo apt-get install -y git
+git clone https://github.com/wakemaster88/hotsport-access.git
+cd hotsport-access/pi-app
+sudo bash scripts/install.sh keyboard</code></pre>
+        </div>
+        <p class="muted small">
+            Letztes Argument ist der Reader-Modus: <code>keyboard</code> (USB-Wedge,
+            Standard), <code>qr_camera</code> oder <code>rfid_mfrc522</code>.
+        </p>
+
+        <p style="margin-top: 1.2rem;"><strong>2b) Bootstrap-Konfiguration eintragen</strong></p>
+        <p class="muted small">
+            Hub-URL und Token sind bereits eingesetzt. Nur <code>pi_id</code>,
+            <code>name</code> und <code>location</code> auf den jeweiligen Pi
+            anpassen.
         </p>
         <div class="code-block" data-lang="bash">
-            <button type="button" class="copy-btn" data-copy-target="code-bootstrap">Kopieren</button>
-            <pre id="code-bootstrap"><code>curl -fsSL {{ hub_url }}/install.sh | sudo bash</code></pre>
+            <pre><code>sudo nano /etc/hotsport-access/config.toml</code></pre>
         </div>
+        <div class="code-block" data-lang="toml">
+            <button type="button" class="copy-btn" data-copy-target="code-config-toml">Kopieren</button>
+            <pre id="code-config-toml"><code>pi_id     = "hotsport-pi-01"
+name      = "Eingang Nord"
+location  = "hotsport"
 
-        <details>
-            <summary>Schneller mit Token als Argument (kein interaktiver Prompt)</summary>
-            <div class="code-block" data-lang="bash">
-                <button type="button" class="copy-btn" data-copy-target="code-bootstrap-token">Kopieren</button>
-                <pre id="code-bootstrap-token"><code>curl -fsSL {{ hub_url }}/install.sh | sudo bash -s -- DEIN-TOKEN</code></pre>
-            </div>
-            <p class="muted small">
-                Pi-ID, Name etc. werden weiterhin interaktiv gefragt. Für
-                vollautomatische Installation (z.B. Provisioning per Ansible)
-                können alle Werte als Flags übergeben werden:
-                <code>--hub URL --token TOKEN --pi-id ID --name "..." --location ... --mode keyboard --yes</code>.
-            </p>
-        </details>
+state_dir = "/var/lib/hotsport-access"
+health_bind_host = "127.0.0.1"
+health_bind_port = 8765
 
-        <p class="hint">
-            Das <strong>Pi-Token</strong> ist <code>HOTSPORT_HUB_PI_TOKEN</code>
-            aus <code>/etc/hotsport-hub.env</code> auf dem Hub. Es ist für alle
-            Pis dasselbe und wird vom Installer beim interaktiven Prompt
-            verdeckt eingegeben (kein Echo).
-        </p>
+[hub]
+base_url                      = "{{ hub_url }}"
+pi_token                      = "{% if pi_token %}{{ pi_token }}{% else %}BITTE-EINTRAGEN{% endif %}"
+heartbeat_interval_seconds    = 5.0
+update_check_interval_seconds = 30.0</code></pre>
+        </div>
+        {% if not pi_token %}
         <p class="muted small">
-            Idempotent – ein zweiter Lauf überschreibt weder venv noch
-            <code>config.toml</code>. Für Routine-Updates ist nicht das Script,
-            sondern der <code>hotsport-updater</code>-Service zuständig.
+            <span class="badge-warn">Hinweis</span>
+            Hub läuft ohne <code>HOTSPORT_HUB_PI_TOKEN</code>. Token in
+            <code>/etc/hotsport-hub.env</code> setzen, Hub neu starten,
+            danach hier neu laden.
+        </p>
+        {% endif %}
+
+        <p style="margin-top: 1.2rem;"><strong>2c) Service starten</strong></p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-restart">Kopieren</button>
+            <pre id="code-restart"><code>sudo systemctl restart hotsport-access hotsport-updater
+sudo systemctl status hotsport-access --no-pager -l | head -20
+journalctl -u hotsport-access -n 30 --no-pager</code></pre>
+        </div>
+        <p class="muted small">
+            Innerhalb von ~5&nbsp;Sekunden taucht der Pi unten im Dashboard auf.
+            Ab jetzt läuft alles über den Hub &ndash; Pi kann vom Internet
+            getrennt werden.
         </p>
     </div>
 </div>
@@ -288,6 +319,33 @@ sudo systemctl restart hotsport-access</code></pre>
                     muss <code>pi_token</code> exakt dem
                     <code>HOTSPORT_HUB_PI_TOKEN</code> auf dem Hub entsprechen.</li>
             </ul>
+        </details>
+        <details>
+            <summary>Bootstrap bricht ab beim <code>apt-get install</code></summary>
+            <p>
+                Der Pi braucht für Schritt 2 Internet. Test:
+                <code>ping -c 2 8.8.8.8</code> und
+                <code>curl -I https://github.com</code>.
+                Falls beides fehlschlägt: Pi temporär ans normale WLAN hängen
+                (<code>sudo raspi-config → System Options → Wireless LAN</code>),
+                Bootstrap durchlaufen lassen, danach zurück ins Hub-Netz.
+            </p>
+        </details>
+        <details>
+            <summary>Code-Update auf einem bereits installierten Pi</summary>
+            <p>
+                Im Normalfall kommen Updates vom Hub. Falls du den Pi-App-Code
+                manuell aus GitHub aktualisieren willst (z.B. nach <code>main</code>-Branch-Änderungen):
+            </p>
+            <div class="code-block" data-lang="bash">
+                <pre><code>cd ~/hotsport-access &amp;&amp; git pull
+cd pi-app &amp;&amp; sudo bash scripts/install.sh keyboard
+sudo systemctl restart hotsport-access</code></pre>
+            </div>
+            <p class="muted small">
+                <code>config.toml</code>, venv und Daten bleiben erhalten – der
+                Installer ist idempotent.
+            </p>
         </details>
         <details>
             <summary>Status bleibt „unkonfiguriert"</summary>
