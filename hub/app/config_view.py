@@ -1,5 +1,10 @@
 """Baut aus globalen API-Settings + Pi-Settings die Live-Config für einen Pi.
 
+Quellen-Reihenfolge je Feld (erste mit Wert gewinnt):
+1. DB (Dashboard-Override)
+2. `devices.json` (Soll-Konfiguration im Repo)
+3. Eingebauter Default
+
 Ein Fingerprint (SHA-256 über das normalisierte JSON) erlaubt dem Pi, schnell
 zu erkennen, ob sich die Konfiguration geändert hat.
 """
@@ -11,7 +16,7 @@ import json
 import sqlite3
 from typing import Any
 
-from . import db
+from . import db, devices
 
 
 def _to_float(v: Any, default: float) -> float:
@@ -48,40 +53,71 @@ def build_for(conn: sqlite3.Connection, pi_id: str) -> dict[str, Any]:
     settings = db.get_settings(conn, prefix="api.")
     row = db.get_pi(conn, pi_id)
 
+    # Soll-Werte aus devices.json (oder leeres Dict, wenn der Pi dort fehlt
+    # bzw. die Datei nicht gefunden wurde).
+    dev_entry: dict[str, Any] = {}
+    for d in devices.list_devices():
+        if d.get("pi_id") == pi_id:
+            dev_entry = d
+            break
+    dev_api = devices.api_settings()
+
+    def db_or(field: str, default: Any = None) -> Any:
+        """Erste nicht-None/leere Quelle aus DB-row -> devices.json -> default."""
+        v = row[field] if row else None
+        if v not in (None, ""):
+            return v
+        v = dev_entry.get(field)
+        if v not in (None, ""):
+            return v
+        return default
+
     enabled_raw = row["enabled"] if row else 1
     if enabled_raw is None:
         enabled_raw = 1
     pi: dict[str, Any] = {
         "enabled": bool(int(enabled_raw)),
-        "interface_id": (row["interface_id"] if row else None) or "",
-        "inout": (row["inout"] if row else None) or "in",
-        "relay_pin": _to_int(row["relay_pin"] if row else None, 24) or 24,
-        "relay_pulse_seconds": _to_float(
-            row["relay_pulse_seconds"] if row else None, 1.0
-        ),
-        "buzzer_pin": _to_int(row["buzzer_pin"] if row else None, 23) or 23,
+        "interface_id": db_or("interface_id", "") or "",
+        "inout": db_or("inout", "in") or "in",
+        "relay_pin": _to_int(db_or("relay_pin"), 24) or 24,
+        "relay_pulse_seconds": _to_float(db_or("relay_pulse_seconds"), 1.0),
+        "buzzer_pin": _to_int(db_or("buzzer_pin"), 23) or 23,
         "reader": {
-            "mode": (row["reader_mode"] if row else None) or "keyboard",
-            "device_path": (row["reader_device_path"] if row else None)
+            "mode": db_or("reader_mode", "keyboard") or "keyboard",
+            "device_path": db_or("reader_device_path", "/dev/input/event0")
             or "/dev/input/event0",
-            "camera_index": _to_int(
-                row["reader_camera_index"] if row else None, 0
-            )
-            or 0,
+            "camera_index": _to_int(db_or("reader_camera_index"), 0) or 0,
         },
-        "name": (row["name"] if row else None) or pi_id,
-        "location": (row["location"] if row else None) or "",
+        "name": db_or("name", pi_id) or pi_id,
+        "location": db_or("location", "") or "",
     }
 
+    # API-Settings: DB-Override > devices.json > Default
+    def api_or(db_key: str, dev_key: str, default: Any) -> Any:
+        v = settings.get(db_key)
+        if v not in (None, ""):
+            return v
+        v = dev_api.get(dev_key)
+        if v not in (None, ""):
+            return v
+        return default
+
     api: dict[str, Any] = {
-        "base_url": settings.get("api.base_url", "").rstrip("/"),
+        "base_url": str(api_or("api.base_url", "base_url", "")).rstrip("/"),
+        # bearer_token kommt nur aus DB (Dashboard-Override) – devices.json
+        # speichert keine Tokens. Pis im Standalone-Modus haben den Token in
+        # ihrer config.toml und ignorieren diesen Wert.
         "bearer_token": settings.get("api.bearer_token", ""),
-        "verify_tls": _to_bool_or_str(settings.get("api.verify_tls")),
+        "verify_tls": _to_bool_or_str(
+            api_or("api.verify_tls", "verify_tls", False)
+        ),
         "connect_timeout_seconds": _to_float(
-            settings.get("api.connect_timeout_seconds"), 1.0
+            api_or("api.connect_timeout_seconds", "connect_timeout_seconds", 1.0),
+            1.0,
         ),
         "request_timeout_seconds": _to_float(
-            settings.get("api.request_timeout_seconds"), 2.0
+            api_or("api.request_timeout_seconds", "request_timeout_seconds", 2.0),
+            2.0,
         ),
     }
 

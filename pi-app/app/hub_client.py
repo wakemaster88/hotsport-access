@@ -119,6 +119,19 @@ class HubClient(threading.Thread):
                 expected_fp,
                 live.fingerprint,
             )
+        # Unvollständige Hub-Configs ignorieren – sonst würden wir eine
+        # funktionierende Inline/Cache-Config kaputtmachen, nur weil der Hub
+        # z.B. keinen Bearer-Token-Override gesetzt hat. Wir merken uns den
+        # Fingerprint trotzdem, damit wir nicht bei jedem Heartbeat erneut
+        # pullen, bis der Hub eine vollständige Antwort liefert.
+        if not live.complete:
+            log.info(
+                "Hub liefert unvollständige Config (fp=%s) – ignoriert, lokale "
+                "Config bleibt aktiv.",
+                live.fingerprint[:12],
+            )
+            self._last_fingerprint = live.fingerprint
+            return
         cfg_mod.save_cache(self._boot, payload)
         self._last_fingerprint = live.fingerprint
         self._on_config_change(live)

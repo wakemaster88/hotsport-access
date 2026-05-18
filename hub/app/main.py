@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import config_view, db, releases
+from . import config_view, db, devices, releases
 from .auth import require_dashboard, require_pi_token
 from .config import HubConfig, load
 
@@ -322,18 +322,19 @@ def _register_routes(app: FastAPI) -> None:
         request: Request, _: Annotated[str, Depends(require_dashboard)]
     ) -> HTMLResponse:
         rels = releases.list_releases(cfg.releases_dir)
-        pis = db.list_pis(request.app.state.db)
+        merged = _merged_pis(request.app.state.db)
         scans = db.recent_scans(request.app.state.db, limit=25)
-        api_settings = db.get_settings(request.app.state.db, prefix="api.")
+        api_view = _api_settings_view(request.app.state.db)
         return request.app.state.templates.TemplateResponse(
             "dashboard.html",
             {
                 "request": request,
                 "active_nav": "dashboard",
-                "pis": pis,
+                "pis": merged,
+                "devices_json_path": str(devices.resolve_devices_path() or ""),
                 "releases": rels,
                 "scans": scans,
-                "api_settings": api_settings,
+                "api_settings": api_view,
                 "now": int(time.time()),
                 "offline_threshold": cfg.offline_threshold_seconds,
                 "reader_modes": ("keyboard", "qr_camera", "rfid_mfrc522"),
@@ -369,13 +370,14 @@ def _register_routes(app: FastAPI) -> None:
         request: Request, _: Annotated[str, Depends(require_dashboard)]
     ) -> HTMLResponse:
         rels = releases.list_releases(cfg.releases_dir)
-        pis = db.list_pis(request.app.state.db)
+        merged = _merged_pis(request.app.state.db)
         return request.app.state.templates.TemplateResponse(
             "_pi_table.html",
             {
                 "request": request,
                 "active_nav": "dashboard",
-                "pis": pis,
+                "pis": merged,
+                "devices_json_path": str(devices.resolve_devices_path() or ""),
                 "releases": rels,
                 "now": int(time.time()),
                 "offline_threshold": cfg.offline_threshold_seconds,
@@ -508,6 +510,46 @@ def _register_routes(app: FastAPI) -> None:
         return {
             "ok": True,
             "uptime_seconds": int(time.time()) - app.state.started_at,
+        }
+
+    def _merged_pis(conn) -> list[dict]:
+        """Pi-Liste fürs Dashboard: Solldaten aus devices.json + Live-Daten aus DB."""
+        dev_list = devices.list_devices()
+        db_rows = [dict(row) for row in db.list_pis(conn)]
+        return devices.merge_for_dashboard(dev_list, db_rows)
+
+    def _api_settings_view(conn) -> dict[str, str]:
+        """API-Settings für die Dashboard-Anzeige.
+
+        Reihenfolge: DB (Override) > devices.json > leer.
+        Das Token wird aus der DB direkt durchgereicht (mit `mask`-Filter
+        rendert es das Template als ``****abcd``).
+        """
+        db_settings = db.get_settings(conn, prefix="api.")
+        dev_api = devices.api_settings()
+
+        def merge(db_key: str, dev_key: str, default: str = "") -> str:
+            v = db_settings.get(db_key)
+            if v not in (None, ""):
+                return str(v)
+            v = dev_api.get(dev_key)
+            if v not in (None, ""):
+                # Booleans aus JSON in TOML-Schreibweise rendern.
+                if isinstance(v, bool):
+                    return "true" if v else "false"
+                return str(v)
+            return default
+
+        return {
+            "api.base_url": merge("api.base_url", "base_url"),
+            "api.bearer_token": db_settings.get("api.bearer_token", ""),
+            "api.verify_tls": merge("api.verify_tls", "verify_tls", "false"),
+            "api.connect_timeout_seconds": merge(
+                "api.connect_timeout_seconds", "connect_timeout_seconds", "1.0"
+            ),
+            "api.request_timeout_seconds": merge(
+                "api.request_timeout_seconds", "request_timeout_seconds", "2.0"
+            ),
         }
 
 

@@ -1,19 +1,23 @@
 """Pi-Konfiguration.
 
-Wir trennen klar zwei Quellen:
+Drei Quellen – in absteigender Priorität:
 
-1. **Bootstrap-Config** (`/etc/hotsport-access/config.toml`):
-   - Nur das, was der Pi braucht, um den Hub zu finden:
-     `pi_id`, `name`, `location`, `state_dir`, Health-Bind, Hub-URL, Hub-Token,
-     Heartbeat-/Update-Intervalle.
-   - Wird vom Operator einmalig befüllt und vom App-Update *nicht* angefasst.
+1. **Inline-Live-Config in `/etc/hotsport-access/config.toml`** (Standardweg):
+   - `config.toml` enthält neben pi_id/name/location auch komplette Sections
+     [api], [pi], [pi.reader] – damit kann der Daemon ohne Hub-Verbindung
+     sofort scannen. Wird vom install.sh aus `devices.json` + interaktiv
+     eingegebenem API-Bearer-Token befüllt.
 
-2. **Live-Config** (vom Hub):
-   - API-Einstellungen (Base-URL, Token, TLS, Timeouts) und alle Pi-spezifischen
-     Felder (interface_id, inout, GPIO-Pins, Reader-Modus etc.).
-   - Wird per `/api/config/{pi_id}` geholt und in `state_dir/live_config.json`
-     zwischengespeichert. So funktioniert der Daemon auch dann sauber, wenn der
-     Hub kurz nicht erreichbar ist (mit der zuletzt bekannten Konfig).
+2. **Live-Config vom Hub** (Override + Updates):
+   - Wenn ein Hub konfiguriert ist und antwortet, kann er die Live-Config
+     pro Pi überschreiben (Dashboard-Edit). Der Daemon übernimmt das beim
+     nächsten Heartbeat.
+
+3. **Cache** (`state_dir/live_config.json`):
+   - Zuletzt bekannte Hub-Config; Fallback wenn Hub kurz nicht erreichbar.
+
+Hub-Verbindung ist OPTIONAL: ohne `[hub] base_url` läuft der Pi autonom,
+schickt nur keine Heartbeats und bekommt keine Updates.
 """
 
 from __future__ import annotations
@@ -123,6 +127,61 @@ class LiveConfig:
         def conv(o: Any) -> Any:
             return o.__dict__ if hasattr(o, "__dict__") else o
         return json.dumps(self, default=conv, sort_keys=True, indent=2)
+
+
+def load_inline_live(path: Path | None = None) -> LiveConfig | None:
+    """Liest eine vollständige LiveConfig direkt aus `config.toml`.
+
+    Gibt `None` zurück, wenn die Sections fehlen oder unvollständig sind –
+    dann fällt der Daemon auf Cache+Hub zurück. Akzeptierte TOML-Struktur::
+
+        [api]
+        base_url     = "https://192.168.251.50:444"
+        bearer_token = "..."
+        verify_tls   = false
+
+        [pi]
+        interface_id = "101"
+        inout        = "in"
+        enabled      = true
+        relay_pin    = 24
+        buzzer_pin   = 23
+        relay_pulse_seconds = 1.0
+
+        [pi.reader]
+        mode         = "keyboard"
+        device_path  = "/dev/input/event0"
+        camera_index = 0
+    """
+    p = path or DEFAULT_CONFIG_PATH
+    if not p.is_file():
+        return None
+    raw = _load_toml(p)
+    api = raw.get("api") or {}
+    pi = raw.get("pi") or {}
+
+    # Mindestanforderung: api.base_url + pi.interface_id müssen gesetzt sein,
+    # sonst kann die Pi-App keinen einzigen Scan validieren.
+    if not (api.get("base_url") and pi.get("interface_id")):
+        return None
+
+    payload = {
+        "api": api,
+        "pi": pi,
+        # Fingerprint deterministisch aus den Werten ableiten, damit Hub-Pulls
+        # mit identischem Inhalt nicht als „geändert" gelten.
+        "fingerprint": _fingerprint(api, pi),
+        "complete": True,
+    }
+    return parse_live(payload)
+
+
+def _fingerprint(api: dict[str, Any], pi: dict[str, Any]) -> str:
+    import hashlib
+    canonical = json.dumps(
+        {"api": api, "pi": pi}, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
 
 
 def parse_live(payload: dict[str, Any]) -> LiveConfig:

@@ -5,55 +5,95 @@
 <section class="card">
     <h2>Globale API-Einstellungen</h2>
     <p class="muted small">
-        Gilt für alle Drehkreuz-Pis. Werden bei jedem Heartbeat live an die Pis
-        ausgeliefert. Das Token wird nicht im Klartext angezeigt – leer lassen,
-        um es unverändert zu lassen.
+        Quelle: <code>devices.json</code> (Sektion <code>[api]</code>) –
+        wird bei jedem Heartbeat an Pis mit Hub-Token ausgeliefert.
+        Pis im Standalone-Modus (ohne Hub-Token) lesen ihre Werte direkt aus
+        der lokalen <code>config.toml</code>, die <code>install.sh</code>
+        ebenfalls aus dieser Datei generiert. Den Bearer-Token gibt jeder
+        Operator beim <code>install.sh</code>-Lauf interaktiv ein – er steht
+        nicht im Repo.
     </p>
-    <form action="/admin/api-settings" method="post" class="grid-form">
-        <label>Base-URL
-            <input type="text" name="api_base_url"
-                   value="{{ api_settings.get('api.base_url', '') }}"
-                   placeholder="https://192.168.251.50:444"
-                   required pattern="https?://.*" />
-        </label>
-        <label>Bearer-Token
-            <input type="password" name="api_bearer_token"
-                   placeholder="aktuell: {{ api_settings.get('api.bearer_token', '') | mask }}"
-                   autocomplete="off" />
-        </label>
-        <label>TLS prüfen
-            <select name="api_verify_tls">
-                {% set vtls = api_settings.get('api.verify_tls', 'false') %}
-                <option value="false" {% if vtls == 'false' %}selected{% endif %}>nein (selbstsigniert)</option>
-                <option value="true"  {% if vtls == 'true'  %}selected{% endif %}>ja</option>
-                {% if vtls not in ('true', 'false') %}
-                    <option value="{{ vtls }}" selected>CA-Pfad: {{ vtls }}</option>
-                {% endif %}
-            </select>
-        </label>
-        <label>Connect-Timeout (s)
-            <input type="number" name="api_connect_timeout_seconds" min="0.1" step="0.1"
-                   value="{{ api_settings.get('api.connect_timeout_seconds', '1.0') }}" />
-        </label>
-        <label>Request-Timeout (s)
-            <input type="number" name="api_request_timeout_seconds" min="0.1" step="0.1"
-                   value="{{ api_settings.get('api.request_timeout_seconds', '2.0') }}" />
-        </label>
-        <div class="grid-form-actions">
-            <button type="submit">Speichern</button>
-        </div>
-    </form>
+    <dl class="kv">
+        <dt>Base-URL</dt>
+        <dd><code>{{ api_settings.get('api.base_url') or '—' }}</code></dd>
+        <dt>TLS prüfen</dt>
+        <dd>
+            {% set vtls = api_settings.get('api.verify_tls', 'false') %}
+            {% if vtls == 'false' %}nein (selbstsigniert)
+            {% elif vtls == 'true' %}ja
+            {% else %}CA-Pfad: <code>{{ vtls }}</code>{% endif %}
+        </dd>
+        <dt>Connect-Timeout</dt>
+        <dd>{{ api_settings.get('api.connect_timeout_seconds', '1.0') }} s</dd>
+        <dt>Request-Timeout</dt>
+        <dd>{{ api_settings.get('api.request_timeout_seconds', '2.0') }} s</dd>
+        <dt>Bearer-Token</dt>
+        <dd>
+            {% set tok = api_settings.get('api.bearer_token', '') %}
+            {% if tok %}
+                <code>{{ tok | mask }}</code>
+                <span class="muted small">(Override im Hub gesetzt – wird an Pis mit Hub-Token gepusht)</span>
+            {% else %}
+                <span class="muted">nicht im Hub – Pi liest ihn aus seiner lokalen <code>config.toml</code></span>
+            {% endif %}
+        </dd>
+    </dl>
+    <details>
+        <summary>API-Settings im Hub überschreiben (für Hub-verwaltete Pis)</summary>
+        <p class="muted small">
+            Nur nötig, wenn du das Token zentral verwalten willst. Alternative:
+            <code>devices.json</code> editieren und Pis neu ausrollen.
+        </p>
+        <form action="/admin/api-settings" method="post" class="grid-form">
+            <label>Base-URL
+                <input type="text" name="api_base_url"
+                       value="{{ api_settings.get('api.base_url', '') }}"
+                       placeholder="https://192.168.251.50:444"
+                       required pattern="https?://.*" />
+            </label>
+            <label>Bearer-Token
+                <input type="password" name="api_bearer_token"
+                       placeholder="aktuell: {{ api_settings.get('api.bearer_token', '') | mask }}"
+                       autocomplete="off" />
+            </label>
+            <label>TLS prüfen
+                <select name="api_verify_tls">
+                    {% set vtls = api_settings.get('api.verify_tls', 'false') %}
+                    <option value="false" {% if vtls == 'false' %}selected{% endif %}>nein (selbstsigniert)</option>
+                    <option value="true"  {% if vtls == 'true'  %}selected{% endif %}>ja</option>
+                    {% if vtls not in ('true', 'false') %}
+                        <option value="{{ vtls }}" selected>CA-Pfad: {{ vtls }}</option>
+                    {% endif %}
+                </select>
+            </label>
+            <label>Connect-Timeout (s)
+                <input type="number" name="api_connect_timeout_seconds" min="0.1" step="0.1"
+                       value="{{ api_settings.get('api.connect_timeout_seconds', '1.0') }}" />
+            </label>
+            <label>Request-Timeout (s)
+                <input type="number" name="api_request_timeout_seconds" min="0.1" step="0.1"
+                       value="{{ api_settings.get('api.request_timeout_seconds', '2.0') }}" />
+            </label>
+            <div class="grid-form-actions">
+                <button type="submit">Speichern (überschreibt devices.json für Hub-Pis)</button>
+            </div>
+        </form>
+    </details>
 </section>
 
 <section class="card">
     <h2>Drehkreuze</h2>
-    {% if not pis %}
-        <p class="muted">
-            Noch kein Pi registriert. Folge der
-            <a href="/setup">Schritt-für-Schritt-Anleitung</a>, um den ersten
-            Drehkreuz-Pi einzurichten.
-        </p>
-    {% endif %}
+    <p class="muted small">
+        Quelle der Pi-Liste:
+        {% if devices_json_path %}
+            <code>{{ devices_json_path }}</code>
+            – ergänzt um Live-Daten aus Heartbeats. Neue Pis ergänzen, dann
+            <code>git push</code> und auf dem Pi <a href="/setup"><code>install.sh</code></a> laufen lassen.
+        {% else %}
+            <span class="warn">devices.json nicht gefunden.</span>
+            Pfad per <code>HOTSPORT_HUB_DEVICES_JSON</code> setzen oder Repo neben dem Hub bereitstellen.
+        {% endif %}
+    </p>
     <div id="pi-table"
          hx-get="/fragments/pis"
          hx-trigger="every 5s"

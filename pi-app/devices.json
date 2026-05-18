@@ -1,34 +1,43 @@
 {
   "_comment": [
     "Zentrale Pi-Konfiguration für die hotsport-access Drehkreuze.",
-    "Hier eintragen, was sonst pro Pi getippt werden müsste – beim",
-    "install.sh auf dem Pi wird dann nur noch der passende Eintrag",
-    "ausgewählt und alles automatisch in /etc/hotsport-access/config.toml",
-    "geschrieben.",
     "",
     "Workflow:",
-    "  1. Diese Datei editieren (neuen Pi-Eintrag ergänzen oder ändern)",
+    "  1. Diese Datei editieren (neuen Pi-Eintrag ergänzen oder ändern).",
     "  2. git commit && git push",
     "  3. Auf dem Pi: install.sh aufrufen, Pi-ID auswählen, fertig.",
     "",
-    "Felder:",
-    "  pi_id        Eindeutige ID (entspricht Hostname-Konvention)",
-    "  name         Anzeigename im Dashboard",
-    "  location     Standort/Halle",
-    "  reader_mode  keyboard | qr_camera | rfid_mfrc522",
-    "  inout        in | out (Drehkreuz-Richtung)",
-    "  interface_id resourceId aus der Binarytec-API (optional bei Anlegen,",
-    "                kann auch später im Dashboard gesetzt werden)",
-    "  relay_pin    GPIO-Pin Relais (Standard 24)",
-    "  buzzer_pin   GPIO-Pin Buzzer (Standard 23)",
+    "Was hier rein gehört (kein Geheimnis):",
+    "  - Hub-URL                          (LAN-IP, optional für Status-Dashboard)",
+    "  - Binarytec-API Base-URL + TLS     (LAN-IP, nicht-secret)",
+    "  - Pro Pi: pi_id, name, location, reader_mode, inout, interface_id,",
+    "    GPIO-Pins, Reader-Devicepfad/Kamera-Index",
     "",
-    "Sicherheitshinweis: Hub-URL ist OK hier (LAN-IP, nicht-secret).",
-    "Der Pi-Token (HOTSPORT_HUB_PI_TOKEN) wird beim install.sh interaktiv",
-    "abgefragt und NICHT in dieser Datei gespeichert – dieses Repo ist public."
+    "Was NICHT hier rein gehört (Repo ist public):",
+    "  - api.bearer_token (Binarytec)     -> install.sh fragt ihn interaktiv ab",
+    "  - hub.pi_token                     -> install.sh fragt ihn interaktiv ab"
   ],
+
   "hub": {
     "base_url": "http://192.168.0.86:8765"
   },
+
+  "api": {
+    "base_url": "https://192.168.251.50:444",
+    "verify_tls": false,
+    "connect_timeout_seconds": 1.0,
+    "request_timeout_seconds": 2.0
+  },
+
+  "defaults": {
+    "reader_mode": "keyboard",
+    "reader_device_path": "/dev/input/event0",
+    "reader_camera_index": 0,
+    "relay_pin": 24,
+    "relay_pulse_seconds": 1.0,
+    "buzzer_pin": 23
+  },
+
   "pis": [
     {
       "pi_id": "hotsport-pi-01",
@@ -36,9 +45,7 @@
       "location": "hotsport",
       "reader_mode": "keyboard",
       "inout": "in",
-      "interface_id": "101",
-      "relay_pin": 24,
-      "buzzer_pin": 23
+      "interface_id": "101"
     },
     {
       "pi_id": "hotsport-pi-02",
@@ -46,9 +53,7 @@
       "location": "hotsport",
       "reader_mode": "keyboard",
       "inout": "in",
-      "interface_id": "102",
-      "relay_pin": 24,
-      "buzzer_pin": 23
+      "interface_id": "102"
     },
     {
       "pi_id": "hotsport-pi-03",
@@ -56,9 +61,7 @@
       "location": "hotsport",
       "reader_mode": "keyboard",
       "inout": "out",
-      "interface_id": "103",
-      "relay_pin": 24,
-      "buzzer_pin": 23
+      "interface_id": "103"
     }
   ]
 }

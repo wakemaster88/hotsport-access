@@ -61,18 +61,37 @@ def main() -> int:
 
     state = State(boot.state_dir / "state.sqlite3")
 
-    # Cache lesen – damit der Daemon auch ohne Hub-Verbindung sofort sinnvoll
-    # arbeiten kann.
+    # Reihenfolge bewusst:
+    #   1. Cache (`state_dir/live_config.json`) – wenn der Hub schonmal eine
+    #      Live-Config geliefert hat, gewinnt sie. Sonst entstünde eine
+    #      Restart-Schleife: Hub liefert fp=X → Inline-Restart → fp=Y → wieder Hub.
+    #   2. Inline-Config aus `config.toml` – Standardweg ohne Hub. install.sh
+    #      löscht den Cache bei Re-Install, damit eine geänderte devices.json
+    #      tatsächlich greift.
+    #   3. Sonst: auf Hub warten.
+    live: cfg_mod.LiveConfig | None = None
     cached = cfg_mod.load_cache(boot)
-    live: cfg_mod.LiveConfig | None = (
-        cfg_mod.parse_live(cached) if cached else None
-    )
-    if live and live.complete:
-        log.info("Live-Config aus Cache übernommen (fp=%s).", live.fingerprint[:12])
-    elif live:
-        log.warning("Live-Config aus Cache ist UNVOLLSTÄNDIG – warte auf Hub.")
-    else:
-        log.warning("Keine gecachte Live-Config – warte auf Hub.")
+    if cached:
+        c_live = cfg_mod.parse_live(cached)
+        if c_live.complete:
+            live = c_live
+            log.info(
+                "Live-Config aus Cache übernommen (fp=%s).", live.fingerprint[:12]
+            )
+    if live is None:
+        inline = cfg_mod.load_inline_live(args.config)
+        if inline and inline.complete:
+            live = inline
+            log.info(
+                "Live-Config inline aus config.toml übernommen (fp=%s).",
+                live.fingerprint[:12],
+            )
+    if live is None:
+        log.warning(
+            "Keine vollständige Live-Config (weder Cache noch inline) – "
+            "warte auf Hub. Bitte api.base_url + pi.interface_id in "
+            "/etc/hotsport-access/config.toml setzen."
+        )
 
     # Wir starten GPIO + Health bereits ohne Live-Config, damit das System
     # zumindest „lebt" und der Hub einen Heartbeat bekommt.

@@ -16,17 +16,23 @@
     </thead>
     <tbody>
         {% for p in pis %}
-            {% set offline = (now - (p["last_seen"] or 0)) > offline_threshold %}
+            {% set never_seen = not p["last_seen"] %}
+            {% set offline = (not never_seen) and ((now - p["last_seen"]) > offline_threshold) %}
             {% set in_sync = p["desired_version"] is none or p["desired_version"] == p["current_version"] %}
             {% set has_settings = p["interface_id"] %}
             {% set is_disabled = (p["enabled"] == 0) %}
-            <tr class="{{ 'row-disabled' if is_disabled else ('row-offline' if offline else ('row-warn' if not in_sync or not has_settings else 'row-ok')) }}">
+            {% set is_db_only = p.get("_source") == "db-only" %}
+            <tr class="{{ 'row-disabled' if is_disabled else ('row-offline' if offline or never_seen else ('row-warn' if not in_sync or not has_settings or is_db_only else 'row-ok')) }}">
                 <td>
                     <button type="button" class="toggle"
                             onclick="toggleDetail('det-{{ p['pi_id'] }}')">▾</button>
                 </td>
                 <td>
-                    <strong>{{ p["name"] or p["pi_id"] }}</strong><br />
+                    <strong>{{ p["name"] or p["pi_id"] }}</strong>
+                    {% if is_db_only %}
+                        <span class="warn small" title="Nicht in devices.json – evtl. alter Test-Eintrag">nicht in devices.json</span>
+                    {% endif %}
+                    <br />
                     <code class="small">{{ p["pi_id"] }}</code>
                 </td>
                 <td>
@@ -66,10 +72,18 @@
                         —
                     {% endif %}
                 </td>
-                <td>{{ p["last_seen"] | age }}</td>
+                <td>
+                    {% if never_seen %}
+                        <span class="muted small">noch nie</span>
+                    {% else %}
+                        {{ p["last_seen"] | age }}
+                    {% endif %}
+                </td>
                 <td>
                     {% if is_disabled %}
                         <span class="muted-badge">deaktiviert</span>
+                    {% elif never_seen %}
+                        <span class="muted-badge">nie verbunden</span>
                     {% elif offline %}
                         <span class="bad">offline</span>
                     {% elif not has_settings %}
@@ -107,5 +121,13 @@
     </tbody>
 </table>
 {% else %}
-<p class="muted">Noch keine Pis registriert. Sobald ein Pi-Daemon läuft, sendet er einen Heartbeat und erscheint hier.</p>
+<p class="muted">
+    Keine Pis konfiguriert.
+    {% if devices_json_path %}
+        Trage Pis in <code>{{ devices_json_path }}</code> ein und committe sie ins Repo.
+    {% else %}
+        <strong>Hinweis:</strong> <code>pi-app/devices.json</code> nicht gefunden.
+        Pfad per <code>HOTSPORT_HUB_DEVICES_JSON</code> setzen oder Repo neben dem Hub bereitstellen.
+    {% endif %}
+</p>
 {% endif %}
