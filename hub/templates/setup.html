@@ -347,6 +347,111 @@ sudo systemctl restart hotsport-access</code></pre>
     </div>
 </div>
 
+<!-- ============ Health & Logs ============ -->
+
+<div class="setup-step card">
+    <div class="step-head">
+        <span class="step-num">6</span>
+        <h3>Health &amp; Logs am Pi prüfen</h3>
+    </div>
+    <div class="step-body">
+        <p>
+            Wenn ein Pi sich seltsam verhält oder du ihn nach der Installation
+            verifizieren willst, sind diese Befehle deine erste Anlaufstelle.
+            Alle laufen direkt auf dem Pi (per <code>ssh pi@&lt;pi-ip&gt;</code>).
+        </p>
+
+        <h4>Service-Status</h4>
+        <p class="muted small">
+            Zeigt, ob der Dienst läuft, wann er zuletzt neu gestartet hat und
+            die ersten Log-Zeilen seit dem Start.
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-status">Kopieren</button>
+            <pre id="code-status"><code>sudo systemctl status hotsport-access --no-pager
+sudo systemctl status hotsport-updater --no-pager</code></pre>
+        </div>
+
+        <h4>Health-Endpoint (lokaler Selbsttest)</h4>
+        <p class="muted small">
+            Der Pi-Daemon antwortet lokal auf Port 8765 mit Healthy-Flag,
+            Versions- und Reader-Info – ideal um zu sehen, ob er Konfig hat.
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-health">Kopieren</button>
+            <pre id="code-health"><code>curl -s http://127.0.0.1:8765/health | python3 -m json.tool</code></pre>
+        </div>
+
+        <h4>Live-Logs</h4>
+        <p class="muted small">
+            <code>-f</code> bleibt offen und zeigt neue Zeilen sofort an
+            (Strg+C zum Beenden). Sehr nützlich beim Scannen, um Reader-Events
+            und API-Antworten in Echtzeit zu sehen.
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-logs-live">Kopieren</button>
+            <pre id="code-logs-live"><code>journalctl -u hotsport-access -f --no-hostname</code></pre>
+        </div>
+
+        <h4>Letzte 100 Log-Zeilen</h4>
+        <p class="muted small">
+            Schneller Rückblick ohne Live-Folgen – gut um nach einem Vorfall zu
+            schauen, was zuletzt passiert ist.
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-logs-last">Kopieren</button>
+            <pre id="code-logs-last"><code>journalctl -u hotsport-access -n 100 --no-pager</code></pre>
+        </div>
+
+        <h4>Nur Fehler / Warnungen</h4>
+        <p class="muted small">
+            Filtert die Logs auf <em>WARNING</em> und höher – bei langer
+            Uptime der schnellste Weg zu echten Problemen.
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-logs-err">Kopieren</button>
+            <pre id="code-logs-err"><code>journalctl -u hotsport-access -p warning --since "1 hour ago" --no-pager</code></pre>
+        </div>
+
+        <h4>Lokales Ereignis-Log (letzte 100 Scans &amp; Service-Events)</h4>
+        <p class="muted small">
+            Pi speichert die letzten 100 Ereignisse in
+            <code>/var/lib/hotsport-access/state.sqlite3</code> – dieselben,
+            die im Hub-Dashboard pro Pi-Detail erscheinen, plus die offline
+            angesammelten.
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-events">Kopieren</button>
+            <pre id="code-events"><code>sudo sqlite3 /var/lib/hotsport-access/state.sqlite3 \
+  "SELECT datetime(scanned_at,'unixepoch','localtime'), kind, code, granted, reason, pushed
+   FROM scans ORDER BY scanned_at DESC LIMIT 100;"</code></pre>
+        </div>
+
+        <h4>Service neustarten / stoppen</h4>
+        <p class="muted small">
+            Nach manuellen Änderungen an <code>config.toml</code> oder dem
+            Code. Der <code>hotsport-updater</code> startet den Daemon
+            automatisch wieder, falls er crasht.
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-restart">Kopieren</button>
+            <pre id="code-restart"><code>sudo systemctl restart hotsport-access
+sudo systemctl stop hotsport-access     # zum Anhalten (Updater bleibt aus)
+sudo systemctl start hotsport-access</code></pre>
+        </div>
+
+        <h4>Konfiguration sehen (ohne Token)</h4>
+        <p class="muted small">
+            Zeigt die aktive <code>config.toml</code> ohne Bearer-/Pi-Token,
+            damit man sie gefahrlos kopieren oder posten kann.
+        </p>
+        <div class="code-block" data-lang="bash">
+            <button type="button" class="copy-btn" data-copy-target="code-config">Kopieren</button>
+            <pre id="code-config"><code>sudo grep -vE '^(bearer_token|pi_token)' /etc/hotsport-access/config.toml</code></pre>
+        </div>
+    </div>
+</div>
+
 <!-- ============ Buzzer-Töne Cheatsheet ============ -->
 
 <div class="setup-step card">
