@@ -113,7 +113,9 @@ PY
 fi
 
 # ---------- Pi-Daten aus devices.json holen ----------
-read -r PI_NAME PI_LOC MODE INOUT INTERFACE RELAY BUZZER HUB_URL < <(
+# IFS=$'\t' ist wichtig: ohne explizites IFS würde bash auch an Leerzeichen
+# splitten und Werte wie "Eingang Nord" über zwei Variablen verteilen.
+IFS=$'\t' read -r PI_NAME PI_LOC MODE INOUT INTERFACE RELAY BUZZER HUB_URL < <(
     python3 - "${DEVICES_JSON}" "${PI_ID}" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f:
@@ -289,7 +291,7 @@ echo " Fertig. Pi '${PI_ID}' ist eingerichtet."
 echo "================================================="
 echo "    Logs:    journalctl -u hotsport-access -f"
 echo "    Updater: journalctl -u hotsport-updater -f"
-echo "    Health:  curl -s http://127.0.0.1:8765/health | jq"
+echo "    Health:  curl -s http://127.0.0.1:8765/health | python3 -m json.tool"
 echo
 echo "Der Pi sollte innerhalb von ~5 Sekunden im Hub-Dashboard"
 echo "  ${HUB_URL}"
