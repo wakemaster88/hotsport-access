@@ -26,6 +26,7 @@ base_url                       = "auto"
 discover                       = true
 hub_port                       = 8000
 discover_interval_seconds      = 15.0
+priority_hosts                 = ["192.168.0.80"]   # zuerst in der LAN-Suche
 pi_token                       = "BITTE-EINTRAGEN"   # = HOTSPORT_HUB_PI_TOKEN auf dem Hub
 heartbeat_interval_seconds     = 5.0
 update_check_interval_seconds  = 30.0

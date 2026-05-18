@@ -121,11 +121,12 @@ IFS=$'\t' read -r \
     PI_NAME PI_LOC MODE INOUT INTERFACE \
     RELAY_PIN RELAY_PULSE BUZZER_PIN \
     READER_DEVICE READER_CAMIDX \
-    HUB_URL HUB_TOKEN_FROM_JSON HUB_DISCOVER HUB_PORT HUB_DISCOVER_INTERVAL \
+    HUB_URL HUB_TOKEN_FROM_JSON HUB_DISCOVER HUB_PORT HUB_DISCOVER_INTERVAL HUB_PRIORITY_HOSTS_JSON \
     API_BASE_URL API_TOKEN_FROM_JSON API_VERIFY_TLS API_CONNECT_TIMEOUT API_REQUEST_TIMEOUT \
     < <(
     python3 - "${DEVICES_JSON}" "${PI_ID}" <<'PY'
 import json, sys
+# json bereits für priority_hosts
 with open(sys.argv[1]) as f:
     data = json.load(f)
 target = sys.argv[2]
@@ -172,6 +173,7 @@ print("\t".join([
     esc(hub.get("discover", False)),
     esc(hub.get("hub_port", 8000)),
     esc(hub.get("discover_interval_seconds", 15.0)),
+    esc(json.dumps(hub.get("priority_hosts") or [])),
     esc(api.get("base_url", "")),
     esc(api.get("bearer_token", "")),
     esc(api.get("verify_tls", False)),
@@ -196,6 +198,7 @@ fi
 [[ "${HUB_DISCOVER}"         == "-" ]] && HUB_DISCOVER="false"
 [[ "${HUB_PORT}"             == "-" ]] && HUB_PORT="8000"
 [[ "${HUB_DISCOVER_INTERVAL}" == "-" ]] && HUB_DISCOVER_INTERVAL="15.0"
+[[ "${HUB_PRIORITY_HOSTS_JSON}" == "-" ]] && HUB_PRIORITY_HOSTS_JSON="[]"
 # hub_port 8765 ist auf dem Pi der lokale Health-Port, aber oft auch der
 # Hub-Dev-Port auf dem Laptop – die Discovery probiert 8000 und 8765.
 [[ "${API_TOKEN_FROM_JSON}"  == "-" ]] && API_TOKEN_FROM_JSON=""
@@ -401,12 +404,20 @@ if [[ -f "${LIVE_CACHE}" ]]; then
     echo "    Live-Config-Cache geleert (alte Sicherung als .bak.*)."
 fi
 
-# Hub-Section schreiben, sobald ein Pi-Token gesetzt ist (URL optional bei discover).
+# Hub-Section: mit Token oder bei aktivierter Discovery.
 HUB_BLOCK=""
-if [[ -n "${HUB_TOKEN}" ]]; then
+if [[ -n "${HUB_TOKEN}" ]] || [[ "${HUB_DISCOVER}" == "true" ]]; then
     HUB_BASE_TOML="${HUB_URL}"
   if [[ -z "${HUB_BASE_TOML}" ]] || [[ "${HUB_BASE_TOML}" == "auto" ]] || [[ "${HUB_BASE_TOML}" == "discover" ]]; then
         HUB_BASE_TOML="auto"
+    fi
+    HUB_PRIO_LINE=""
+    if [[ "${HUB_PRIORITY_HOSTS_JSON}" != "[]" ]]; then
+        HUB_PRIO_LINE="priority_hosts                 = ${HUB_PRIORITY_HOSTS_JSON}"
+    fi
+    HUB_TOKEN_LINE=""
+    if [[ -n "${HUB_TOKEN}" ]]; then
+        HUB_TOKEN_LINE="pi_token                      = \"${HUB_TOKEN}\""
     fi
     HUB_BLOCK=$(cat <<EOF
 
@@ -415,7 +426,8 @@ base_url                      = "${HUB_BASE_TOML}"
 discover                      = ${HUB_DISCOVER}
 hub_port                      = ${HUB_PORT}
 discover_interval_seconds     = ${HUB_DISCOVER_INTERVAL}
-pi_token                      = "${HUB_TOKEN}"
+${HUB_PRIO_LINE}
+${HUB_TOKEN_LINE}
 heartbeat_interval_seconds    = 5.0
 update_check_interval_seconds = 30.0
 EOF

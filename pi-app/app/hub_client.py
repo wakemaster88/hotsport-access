@@ -142,6 +142,7 @@ class HubClient(threading.Thread):
                 hint_url=hint,
                 port=hub.hub_port,
                 state_dir=self._boot.state_dir,
+                priority_hosts=hub.priority_hosts,
             )
             if found:
                 return found

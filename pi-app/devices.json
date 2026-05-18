@@ -20,6 +20,7 @@
     "discover": true,
     "hub_port": 8765,
     "discover_interval_seconds": 15.0,
+    "priority_hosts": ["192.168.0.80"],
     "pi_token": ""
   },
 

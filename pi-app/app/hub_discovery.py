@@ -171,6 +171,7 @@ def _local_ipv4_addresses() -> list[str]:
 def _networks_from_ips(
     ips: list[str],
     hint_url: str | None = None,
+    extra_hosts: tuple[str, ...] = (),
 ) -> list[ipaddress.IPv4Network]:
     nets: list[ipaddress.IPv4Network] = []
     seen: set[str] = set()
@@ -195,6 +196,9 @@ def _networks_from_ips(
                 _add_ip(host)
         except Exception:  # noqa: BLE001
             pass
+    for host in extra_hosts:
+        if host.strip():
+            _add_ip(host.strip())
     return nets
 
 
@@ -308,12 +312,18 @@ def _iter_priority_candidates(
     ports: tuple[int, ...],
     state_dir: Path | None,
     local_ips: list[str],
+    priority_hosts: tuple[str, ...] = (),
 ) -> Iterator[str]:
     """Phase 1: Cache, Hint, Gateways, Nachbarn, typische Server-IPs, mDNS."""
     if state_dir:
         cached = load_cached_hub(state_dir)
         if cached:
             yield cached
+
+    for host in priority_hosts:
+        h = host.strip()
+        if h:
+            yield from _yield_host_ports(h, ports)
 
     if hint_url and not is_auto_url(hint_url):
         try:
@@ -341,9 +351,12 @@ def _iter_sweep_candidates(
     ports: tuple[int, ...],
     local_ips: list[str],
     hint_url: str | None = None,
+    priority_hosts: tuple[str, ...] = (),
 ) -> Iterator[str]:
     """Phase 2: Full /24-Sweep (eigenes Subnetz + Hint-Subnetz bei Cross-LAN)."""
-    for net in _networks_from_ips(local_ips, hint_url=hint_url):
+    for net in _networks_from_ips(
+        local_ips, hint_url=hint_url, extra_hosts=priority_hosts,
+    ):
         for addr in net.hosts():
             yield from _yield_host_ports(str(addr), ports)
 
@@ -353,6 +366,7 @@ def iter_hub_candidates(
     hint_url: str | None,
     port: int,
     state_dir: Path | None,
+    priority_hosts: tuple[str, ...] = (),
 ) -> Iterator[str]:
     """Backwards-kompatibler Iterator: Prio-Liste + Sweep, in Reihenfolge."""
     local_ips = _local_ipv4_addresses()
@@ -362,9 +376,13 @@ def iter_hub_candidates(
         ports=ports,
         state_dir=state_dir,
         local_ips=local_ips,
+        priority_hosts=priority_hosts,
     )
     yield from _iter_sweep_candidates(
-        ports=ports, local_ips=local_ips, hint_url=hint_url,
+        ports=ports,
+        local_ips=local_ips,
+        hint_url=hint_url,
+        priority_hosts=priority_hosts,
     )
 
 
@@ -409,6 +427,7 @@ def discover_hub(
     hint_url: str | None = None,
     port: int = HUB_STANDARD_PORT,
     state_dir: Path | None = None,
+    priority_hosts: tuple[str, ...] = (),
     probe_timeout: float = 0.5,
     max_workers: int = 48,
 ) -> str | None:
@@ -421,6 +440,7 @@ def discover_hub(
         ports=ports,
         state_dir=state_dir,
         local_ips=local_ips,
+        priority_hosts=priority_hosts,
     ))
     if priority:
         log.info(
@@ -438,7 +458,10 @@ def discover_hub(
     sweep = [
         u.rstrip("/")
         for u in _iter_sweep_candidates(
-            ports=ports, local_ips=local_ips, hint_url=hint_url,
+            ports=ports,
+            local_ips=local_ips,
+            hint_url=hint_url,
+            priority_hosts=priority_hosts,
         )
         if u.rstrip("/") not in sweep_seen
     ]

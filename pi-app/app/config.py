@@ -56,6 +56,7 @@ class HubBootstrap:
     discover: bool = False
     hub_port: int = 8000
     discover_interval_seconds: float = 15.0
+    priority_hosts: tuple[str, ...] = ()
     heartbeat_interval_seconds: float = 5.0
     update_check_interval_seconds: float = 30.0
 
@@ -71,6 +72,17 @@ class Bootstrap:
     hub: HubBootstrap = field(default_factory=HubBootstrap)
 
 
+def _parse_priority_hosts(raw: Any) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if isinstance(raw, str):
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        return tuple(parts)
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(h).strip() for h in raw if str(h).strip())
+    return ()
+
+
 def _parse_hub(raw: dict[str, Any]) -> HubBootstrap:
     discover = raw.get("discover", False)
     if isinstance(discover, str):
@@ -81,6 +93,7 @@ def _parse_hub(raw: dict[str, Any]) -> HubBootstrap:
         discover=bool(discover),
         hub_port=_to_int(raw.get("hub_port"), 8000),
         discover_interval_seconds=_to_float(raw.get("discover_interval_seconds"), 15.0),
+        priority_hosts=_parse_priority_hosts(raw.get("priority_hosts")),
         heartbeat_interval_seconds=_to_float(raw.get("heartbeat_interval_seconds"), 5.0),
         update_check_interval_seconds=_to_float(
             raw.get("update_check_interval_seconds"), 30.0
