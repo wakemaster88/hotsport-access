@@ -38,6 +38,10 @@ import httpx
 
 log = logging.getLogger(__name__)
 
+# Hub-Dashboard (uvicorn). NICHT 8765 – das ist nur der lokale Pi-/health-Port.
+HUB_STANDARD_PORT = 8000
+PI_HEALTH_PORT = 8765
+
 AUTO_URLS = frozenset({"", "auto", "discover"})
 MDNS_HOSTS = ("hub.local", "hotsport-hub.local", "hotsport-hub")
 
@@ -71,9 +75,47 @@ def load_cached_hub(state_dir: Path) -> str | None:
         return None
     try:
         url = p.read_text(encoding="utf-8").strip()
-        return url if url else None
+        if not url:
+            return None
+        if not is_hotsport_hub(url, timeout=0.5):
+            log.info("Hub-Cache ungültig (%s) – wird ignoriert.", url)
+            try:
+                p.unlink()
+            except OSError:
+                pass
+            return None
+        return url
     except OSError:
         return None
+
+
+def effective_hub_port(config_port: int) -> int:
+    """8765 ist der Pi-Health-Port – häufig fälschlich als hub_port gesetzt."""
+    if config_port in (0, PI_HEALTH_PORT):
+        if config_port == PI_HEALTH_PORT:
+            log.warning(
+                "hub_port=%d ist der Pi-Health-Port – nutze %d für die Hub-Suche.",
+                PI_HEALTH_PORT,
+                HUB_STANDARD_PORT,
+            )
+        return HUB_STANDARD_PORT
+    return config_port
+
+
+def ports_to_probe(config_port: int, hint_url: str | None) -> tuple[int, ...]:
+    """Alle Ports, die für GET /health am Hub sinnvoll sind."""
+    ports: list[int] = []
+    for p in (effective_hub_port(config_port), HUB_STANDARD_PORT):
+        if p not in ports:
+            ports.append(p)
+    if hint_url and not is_auto_url(hint_url):
+        try:
+            parsed = urlparse(hint_url)
+            if parsed.port and parsed.port not in ports and parsed.port != PI_HEALTH_PORT:
+                ports.insert(0, parsed.port)
+        except Exception:  # noqa: BLE001
+            pass
+    return tuple(ports)
 
 
 def save_cached_hub(state_dir: Path, url: str) -> None:
@@ -127,10 +169,14 @@ def _local_ipv4_addresses() -> list[str]:
     return candidates
 
 
-def _networks_from_ips(ips: list[str]) -> list[ipaddress.IPv4Network]:
+def _networks_from_ips(
+    ips: list[str],
+    hint_url: str | None = None,
+) -> list[ipaddress.IPv4Network]:
     nets: list[ipaddress.IPv4Network] = []
     seen: set[str] = set()
-    for ip in ips:
+
+    def _add_ip(ip: str) -> None:
         try:
             addr = ipaddress.IPv4Address(ip)
             net = ipaddress.ip_network(f"{addr}/24", strict=False)
@@ -139,7 +185,17 @@ def _networks_from_ips(ips: list[str]) -> list[ipaddress.IPv4Network]:
                 seen.add(key)
                 nets.append(net)
         except ValueError:
-            continue
+            pass
+
+    for ip in ips:
+        _add_ip(ip)
+    if hint_url and not is_auto_url(hint_url):
+        try:
+            host = urlparse(hint_url).hostname
+            if host:
+                _add_ip(host)
+        except Exception:  # noqa: BLE001
+            pass
     return nets
 
 
@@ -242,10 +298,15 @@ def _resolve_many_with_timeout(
     return [h for h in hosts_list if h in resolved]
 
 
+def _yield_host_ports(host: str, ports: tuple[int, ...]) -> Iterator[str]:
+    for p in ports:
+        yield _url_for_host(host, p)
+
+
 def _iter_priority_candidates(
     *,
     hint_url: str | None,
-    port: int,
+    ports: tuple[int, ...],
     state_dir: Path | None,
     local_ips: list[str],
 ) -> Iterator[str]:
@@ -256,36 +317,36 @@ def _iter_priority_candidates(
             yield cached
 
     if hint_url and not is_auto_url(hint_url):
-        yield hint_url.rstrip("/")
         try:
             parsed = urlparse(hint_url)
-            if parsed.hostname:
-                yield _url_for_host(parsed.hostname, port)
+            host = parsed.hostname
+            if host:
+                yield from _yield_host_ports(host, ports)
+            else:
+                yield hint_url.rstrip("/")
         except Exception:  # noqa: BLE001
-            pass
+            yield hint_url.rstrip("/")
 
     for gw in _gateway_ips():
-        yield _url_for_host(gw, port)
+        yield from _yield_host_ports(gw, ports)
 
     for host in _priority_hosts(local_ips):
-        yield _url_for_host(host, port)
+        yield from _yield_host_ports(host, ports)
 
-    # mDNS nur, wenn DNS innerhalb 0,5 s antwortet – sonst Pi ohne
-    # Avahi würde 5 s × 3 = 15 s warten. Auflösung läuft parallel,
-    # damit ein einzelner hängender Hostname die anderen nicht ausbremst.
     for h in _resolve_many_with_timeout(MDNS_HOSTS, timeout=0.5):
-        yield _url_for_host(h, port)
+        yield from _yield_host_ports(h, ports)
 
 
 def _iter_sweep_candidates(
     *,
-    port: int,
+    ports: tuple[int, ...],
     local_ips: list[str],
+    hint_url: str | None = None,
 ) -> Iterator[str]:
-    """Phase 2: Full /24-Sweep über alle lokalen Netze."""
-    for net in _networks_from_ips(local_ips):
+    """Phase 2: Full /24-Sweep (eigenes Subnetz + Hint-Subnetz bei Cross-LAN)."""
+    for net in _networks_from_ips(local_ips, hint_url=hint_url):
         for addr in net.hosts():
-            yield _url_for_host(str(addr), port)
+            yield from _yield_host_ports(str(addr), ports)
 
 
 def iter_hub_candidates(
@@ -296,10 +357,16 @@ def iter_hub_candidates(
 ) -> Iterator[str]:
     """Backwards-kompatibler Iterator: Prio-Liste + Sweep, in Reihenfolge."""
     local_ips = _local_ipv4_addresses()
+    ports = ports_to_probe(port, hint_url)
     yield from _iter_priority_candidates(
-        hint_url=hint_url, port=port, state_dir=state_dir, local_ips=local_ips,
+        hint_url=hint_url,
+        ports=ports,
+        state_dir=state_dir,
+        local_ips=local_ips,
     )
-    yield from _iter_sweep_candidates(port=port, local_ips=local_ips)
+    yield from _iter_sweep_candidates(
+        ports=ports, local_ips=local_ips, hint_url=hint_url,
+    )
 
 
 def _race_probe(
@@ -341,21 +408,26 @@ def _dedupe(urls: Iterator[str]) -> list[str]:
 def discover_hub(
     *,
     hint_url: str | None = None,
-    port: int = 8000,
+    port: int = HUB_STANDARD_PORT,
     state_dir: Path | None = None,
     probe_timeout: float = 0.35,
     max_workers: int = 48,
 ) -> str | None:
     """Erst Prio-Kandidaten (~30, sehr schnell), dann Full-Sweep (~250)."""
     local_ips = _local_ipv4_addresses()
+    ports = ports_to_probe(port, hint_url)
 
     priority = _dedupe(_iter_priority_candidates(
-        hint_url=hint_url, port=port, state_dir=state_dir, local_ips=local_ips,
+        hint_url=hint_url,
+        ports=ports,
+        state_dir=state_dir,
+        local_ips=local_ips,
     ))
     if priority:
         log.info(
-            "Hub-Suche Phase 1 (Prio): %d Kandidaten auf Port %d …",
-            len(priority), port,
+            "Hub-Suche Phase 1 (Prio): %d Kandidaten, Ports %s …",
+            len(priority),
+            ",".join(str(p) for p in ports),
         )
         found = _race_probe(priority, probe_timeout, max_workers)
         if found:
@@ -366,7 +438,9 @@ def discover_hub(
     sweep_seen = set(priority)
     sweep = [
         u.rstrip("/")
-        for u in _iter_sweep_candidates(port=port, local_ips=local_ips)
+        for u in _iter_sweep_candidates(
+            ports=ports, local_ips=local_ips, hint_url=hint_url,
+        )
         if u.rstrip("/") not in sweep_seen
     ]
     sweep = _dedupe(iter(sweep))
@@ -374,8 +448,9 @@ def discover_hub(
         return None
 
     log.info(
-        "Hub-Suche Phase 2 (Full-Sweep): %d Kandidaten auf Port %d …",
-        len(sweep), port,
+        "Hub-Suche Phase 2 (Full-Sweep): %d Kandidaten, Ports %s …",
+        len(sweep),
+        ",".join(str(p) for p in ports),
     )
     found = _race_probe(sweep, probe_timeout, max_workers)
     if found and state_dir:

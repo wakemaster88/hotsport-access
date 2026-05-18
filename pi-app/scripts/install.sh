@@ -196,6 +196,10 @@ fi
 [[ "${HUB_DISCOVER}"         == "-" ]] && HUB_DISCOVER="false"
 [[ "${HUB_PORT}"             == "-" ]] && HUB_PORT="8000"
 [[ "${HUB_DISCOVER_INTERVAL}" == "-" ]] && HUB_DISCOVER_INTERVAL="15.0"
+if [[ "${HUB_PORT}" == "8765" ]]; then
+    echo "WARNUNG: hub_port=8765 ist der Pi-Health-Port – setze hub_port auf 8000 (Hub-Dashboard)." >&2
+    HUB_PORT="8000"
+fi
 [[ "${API_TOKEN_FROM_JSON}"  == "-" ]] && API_TOKEN_FROM_JSON=""
 [[ "${INTERFACE}"            == "-" ]] && INTERFACE=""
 [[ "${API_VERIFY_TLS}"       == "-" ]] && API_VERIFY_TLS="false"

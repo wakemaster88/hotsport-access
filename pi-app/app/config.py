@@ -75,11 +75,15 @@ def _parse_hub(raw: dict[str, Any]) -> HubBootstrap:
     discover = raw.get("discover", False)
     if isinstance(discover, str):
         discover = discover.strip().lower() in ("true", "1", "yes")
+    hub_port = _to_int(raw.get("hub_port"), 8000)
+    # 8765 = health_bind_port auf dem Pi, nicht der Hub.
+    if hub_port == 8765:
+        hub_port = 8000
     return HubBootstrap(
         base_url=str(raw.get("base_url") or "").strip(),
         pi_token=str(raw.get("pi_token") or "").strip(),
         discover=bool(discover),
-        hub_port=_to_int(raw.get("hub_port"), 8000),
+        hub_port=hub_port,
         discover_interval_seconds=_to_float(raw.get("discover_interval_seconds"), 15.0),
         heartbeat_interval_seconds=_to_float(raw.get("heartbeat_interval_seconds"), 5.0),
         update_check_interval_seconds=_to_float(

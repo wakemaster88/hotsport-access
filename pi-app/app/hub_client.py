@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import threading
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 import httpx
 
@@ -145,9 +146,13 @@ class HubClient(threading.Thread):
             if found:
                 return found
             if hint and not hub_discovery.is_auto_url(hint):
-                if hub_discovery.is_hotsport_hub(hint.rstrip("/")):
-                    hub_discovery.save_cached_hub(self._boot.state_dir, hint)
-                    return hint.rstrip("/")
+                host = urlparse(hint).hostname
+                if host:
+                    for port in hub_discovery.ports_to_probe(hub.hub_port, hint):
+                        url = f"http://{host}:{port}"
+                        if hub_discovery.is_hotsport_hub(url):
+                            hub_discovery.save_cached_hub(self._boot.state_dir, url)
+                            return url
             return None
 
         if hint and not hub_discovery.is_auto_url(hint):
